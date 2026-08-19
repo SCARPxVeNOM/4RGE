@@ -172,4 +172,17 @@ describe('referencedSteps', () => {
   test('returns nothing when only inputs are referenced', () => {
     expect(referencedSteps({ a: '{{ inputs.x }}' })).toStrictEqual([]);
   });
+
+  test('rejects a step reference that does not read output', () => {
+    // §5.1 requires unresolvable references to fail validation before
+    // execution. Collecting the step id without checking the keyword would
+    // defer this to run time, after the flow has already started spending.
+    expect(() => referencedSteps({ a: '{{ steps.x.input.v }}' })).toThrow(TemplateError);
+    expect(() => referencedSteps({ a: '{{ steps.x.status }}' })).toThrow(TemplateError);
+  });
+
+  test('rejects a malformed reference rather than ignoring it', () => {
+    expect(() => referencedSteps({ a: '{{ 1 + 1 }}' })).toThrow(TemplateError);
+    expect(() => referencedSteps({ a: '{{ unterminated' })).toThrow(TemplateError);
+  });
 });

@@ -235,10 +235,19 @@ export function referencedSteps(value: JsonValue): string[] {
         if (token.kind !== 'expr') continue;
         const path = parsePath(token.expression, location);
         if (path[0] === 'steps') {
-          const stepId = path[1];
+          const [, stepId, outputKeyword] = path;
           if (stepId === undefined) {
             throw new TemplateError(
               `step reference must name a step: {{ ${token.expression} }}`,
+              location,
+            );
+          }
+          // Validate the shape here, not only at resolution time. §5.1
+          // requires unresolvable references to fail before execution begins,
+          // and this function is what planning uses to check a flow.
+          if (outputKeyword !== 'output') {
+            throw new TemplateError(
+              `only step outputs are referenceable, not "${outputKeyword ?? '<nothing>'}": {{ ${token.expression} }}`,
               location,
             );
           }

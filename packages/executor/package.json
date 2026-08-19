@@ -1,0 +1,17 @@
+{
+  "name": "@0gflow/executor",
+  "version": "1.0.0",
+  "description": "Resolves, invokes, hashes, anchors and seals 0G Flow runs",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "files": ["dist"],
+  "scripts": { "build": "tsc -b" },
+  "dependencies": {
+    "@0gflow/config": "workspace:*",
+    "@0gflow/core": "workspace:*",
+    "viem": "^2.21.0"
+  },
+  "license": "MIT"
+}

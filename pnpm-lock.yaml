@@ -25,6 +25,18 @@ importers:
 
   packages/core: {}
 
+  packages/executor:
+    dependencies:
+      '@0gflow/config':
+        specifier: workspace:*
+        version: link:../config
+      '@0gflow/core':
+        specifier: workspace:*
+        version: link:../core
+      viem:
+        specifier: ^2.21.0
+        version: 2.55.19(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)
+
   packages/verify:
     devDependencies:
       '@0gflow/config':
@@ -64,6 +76,16 @@ importers:
       viem:
         specifier: ^2.21.0
         version: 2.55.19(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)
+    devDependencies:
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.12
+
+  tools/reference-agents:
+    dependencies:
+      '@0gflow/core':
+        specifier: workspace:*
+        version: link:../../packages/core
     devDependencies:
       tsx:
         specifier: ^4.19.2
