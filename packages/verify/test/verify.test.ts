@@ -269,6 +269,70 @@ describe('incomplete (evidence not obtainable)', () => {
   });
 });
 
+describe('a failed run verifies AS a failure', () => {
+  // §1.3: "Runs that fail are sealed and verifiable as failures." A failed
+  // run that fails *verification* would be indistinguishable from a tampered
+  // one, and the whole point is that the two are different.
+
+  test('a failed step committing to no output does not fail verification', () => {
+    const receipts = buildReceipts();
+    receipts[1] = { ...receipts[1]!, status: StepStatus.Failed, outputHash: ZERO_BYTES32 };
+    const traces = new Map([
+      [TRACE_ROOTS[0]!.toLowerCase(), TRACES[0]!],
+      [TRACE_ROOTS[1]!.toLowerCase(), trace('summarize', 1, IN_1, {})],
+    ]);
+    return verifyRun(scenario({ receipts, traces })).then((report) => {
+      expect(report.failures).toStrictEqual([]);
+      expect(report.verdict).toBe('verified');
+      expect(report.runSucceeded).toBe(false);
+    });
+  });
+
+  test('a skipped step committing to nothing does not fail verification', async () => {
+    const receipts = buildReceipts();
+    receipts[1] = {
+      ...receipts[1]!,
+      status: StepStatus.Skipped,
+      inputHash: ZERO_BYTES32,
+      outputHash: ZERO_BYTES32,
+    };
+    const traces = new Map([
+      [TRACE_ROOTS[0]!.toLowerCase(), TRACES[0]!],
+      [TRACE_ROOTS[1]!.toLowerCase(), trace('summarize', 1, {}, {})],
+    ]);
+    const report = await verifyRun(scenario({ receipts, traces }));
+    expect(report.failures).toStrictEqual([]);
+    expect(report.runSucceeded).toBe(false);
+  });
+
+  test('an ok step may not commit to nothing', async () => {
+    // Keeps the exemption honest: zero is only allowed where the status
+    // explains it, otherwise a step could pass by committing to nothing.
+    const receipts = buildReceipts();
+    receipts[1] = { ...receipts[1]!, outputHash: ZERO_BYTES32 };
+    const traces = new Map([
+      [TRACE_ROOTS[0]!.toLowerCase(), TRACES[0]!],
+      [TRACE_ROOTS[1]!.toLowerCase(), trace('summarize', 1, IN_1, {})],
+    ]);
+    const report = await verifyRun(scenario({ receipts, traces }));
+    expect(report.verdict).toBe('failed');
+    expect(report.failures.join(' ')).toMatch(/commit/i);
+  });
+
+  test('a tampered failed run is still caught', async () => {
+    // The exemption must not become a hiding place: a failed step that DOES
+    // commit to an output is still held to it.
+    const receipts = buildReceipts();
+    receipts[1] = { ...receipts[1]!, status: StepStatus.Failed };
+    const traces = new Map([
+      [TRACE_ROOTS[0]!.toLowerCase(), TRACES[0]!],
+      [TRACE_ROOTS[1]!.toLowerCase(), trace('summarize', 1, IN_1, { text: 'tampered' })],
+    ]);
+    const report = await verifyRun(scenario({ receipts, traces }));
+    expect(report.verdict).toBe('failed');
+  });
+});
+
 describe('status reporting', () => {
   test('an unattested step is reported as such and is not a success', async () => {
     const receipts = buildReceipts();

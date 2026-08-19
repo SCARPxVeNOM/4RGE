@@ -207,11 +207,26 @@ export async function verifyRun(options: VerifyOptions): Promise<VerificationRep
       try {
         const trace = parseTrace(fetched.bytes);
 
+        // A zero hash is a claim of ABSENCE — the step committed to nothing —
+        // not a hash of empty data. Legitimate for a step that failed or was
+        // skipped, because §1.3 requires such runs to stay verifiable AS
+        // failures; a failed run that fails *verification* would be
+        // indistinguishable from a tampered one. An ok step may never claim
+        // it, or it could pass every check by committing to nothing.
+        const commitsInput = receipt.inputHash !== ZERO_BYTES32;
+        const commitsOutput = receipt.outputHash !== ZERO_BYTES32;
+
+        if (statusSucceeded(receipt.status) && !(commitsInput && commitsOutput)) {
+          failures.push(
+            `step ${receipt.stepIndex} is status ok but commits to no ${commitsOutput ? 'input' : 'output'}: a successful step must commit to what it consumed and produced`,
+          );
+        }
+
         // Step 3: recompute the hashes the receipt commits to.
         const inputHash = hashJson(trace.input);
         const outputHash = hashJson(trace.output);
-        const inputOk = inputHash === receipt.inputHash;
-        const outputOk = outputHash === receipt.outputHash;
+        const inputOk = !commitsInput || inputHash === receipt.inputHash;
+        const outputOk = !commitsOutput || outputHash === receipt.outputHash;
         hashesMatch = inputOk && outputOk;
 
         if (!inputOk) {

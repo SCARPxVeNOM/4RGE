@@ -1,0 +1,15 @@
+{
+  "name": "@0gflow/run-flow",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Executes a flow against the deployed contracts using the reference agents",
+  "type": "module",
+  "scripts": { "flow": "tsx src/run.ts" },
+  "dependencies": {
+    "@0gflow/config": "workspace:*",
+    "@0gflow/core": "workspace:*",
+    "@0gflow/executor": "workspace:*",
+    "@0gflow/reference-agents": "workspace:*"
+  },
+  "devDependencies": { "tsx": "^4.19.2" }
+}

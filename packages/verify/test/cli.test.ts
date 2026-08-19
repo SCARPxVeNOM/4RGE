@@ -50,6 +50,32 @@ describe('loadSpec', () => {
     expect(loaded.inputs).toStrictEqual({ k: 1 });
   });
 
+  test('prefers spec.steps over a sibling steps key', () => {
+    // A run artifact carries both the flow spec and a summary of what each
+    // step did. Picking the summary array yields steps with no id or input,
+    // and linkage then fails against a run that is actually sound.
+    const p = join(dir, 'ambiguous.json');
+    writeFileSync(
+      p,
+      JSON.stringify({
+        steps: [{ stepId: 'audit', stepIndex: 0, status: 0 }],
+        spec: { steps: [{ id: 'audit', input: { repo: '{{ inputs.repoUrl }}' } }] },
+        runInputs: { repoUrl: 'x' },
+      }),
+    );
+    const loaded = loadSpec(p, undefined);
+    expect(loaded.steps).toHaveLength(1);
+    expect(loaded.steps[0]!.id).toBe('audit');
+    expect(loaded.steps[0]!.input).toStrictEqual({ repo: '{{ inputs.repoUrl }}' });
+  });
+
+  test('rejects steps that carry no id', () => {
+    // Better to refuse than to silently check linkage for step "undefined".
+    const p = join(dir, 'noid.json');
+    writeFileSync(p, JSON.stringify({ steps: [{ stepIndex: 0, status: 0 }] }));
+    expect(() => loadSpec(p, undefined)).toThrow(/id/i);
+  });
+
   test('rejects a file with no steps', () => {
     const p = join(dir, 'bad.json');
     writeFileSync(p, JSON.stringify({ nope: true }));

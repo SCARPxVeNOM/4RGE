@@ -23,7 +23,7 @@
 import type { JsonValue } from './canonicalize.js';
 import { hashJson, type Hex } from './hash.js';
 import { statusSucceeded } from './outcome.js';
-import { StepStatus, type Receipt } from './receipt.js';
+import { StepStatus, ZERO_BYTES32, type Receipt } from './receipt.js';
 import { referencedSteps, resolveTemplates, TemplateError, type StepContext } from './template.js';
 
 /** A step as declared in the flow spec. Array position is its stepIndex. */
@@ -139,9 +139,23 @@ export function verifyLinkage(query: LinkageQuery): LinkageReport {
     }
 
     if (receipt !== undefined && record !== undefined) {
+      // A zero hash is a claim of ABSENCE, not a hash of empty data: the step
+      // committed to nothing. That is legitimate for a step that failed or was
+      // skipped — §1.3 requires such runs to remain verifiable AS failures —
+      // but an ok step may never claim it, or it could succeed while escaping
+      // every hash check.
+      const commitsOutput = receipt.outputHash !== ZERO_BYTES32;
+      const commitsInput = receipt.inputHash !== ZERO_BYTES32;
+
+      if (statusSucceeded(receipt.status) && !(commitsOutput && commitsInput)) {
+        stepFailures.push(
+          `step "${step.id}" is status ok but commits to no ${commitsOutput ? 'input' : 'output'}: a successful step must commit to what it consumed and produced`,
+        );
+      }
+
       // 1. The stored output must be the one the receipt commits to.
       const outputHash = hashJson(record.output);
-      outputHashMatches = outputHash === receipt.outputHash;
+      outputHashMatches = !commitsOutput || outputHash === receipt.outputHash;
       if (!outputHashMatches) {
         stepFailures.push(
           `step "${step.id}": stored output hashes to ${outputHash} but the receipt anchors outputHash ${receipt.outputHash}`,
@@ -151,7 +165,11 @@ export function verifyLinkage(query: LinkageQuery): LinkageReport {
       // 2. Re-derive the input from confirmed upstream outputs and the run
       //    inputs, using the template declared in the spec.
       const missing = derivedFrom.filter((id) => !confirmedOutputs.has(id));
-      if (missing.length > 0) {
+      if (!commitsInput) {
+        // The step asserts it consumed nothing, so there is nothing to
+        // re-derive. Only reachable for a non-ok status, per the check above.
+        inputHashMatches = true;
+      } else if (missing.length > 0) {
         stepFailures.push(
           `step "${step.id}": cannot re-derive input because upstream output${missing.length > 1 ? 's' : ''} ${missing.map((m) => `"${m}"`).join(', ')} ${missing.length > 1 ? 'were' : 'was'} not confirmed`,
         );
@@ -175,7 +193,8 @@ export function verifyLinkage(query: LinkageQuery): LinkageReport {
         }
       }
 
-      if (outputHashMatches) {
+      // Only a committed output can be relied on downstream.
+      if (outputHashMatches && commitsOutput) {
         confirmedOutputs.set(step.id, { output: record.output });
       }
     }

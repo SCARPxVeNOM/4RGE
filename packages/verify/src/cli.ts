@@ -99,7 +99,12 @@ export function parseArgs(argv: readonly string[]): Args {
  */
 export function loadSpec(specPath: string, inputsPath: string | undefined): SpecForLinkage {
   const raw = JSON.parse(readFileSync(specPath, 'utf8')) as Record<string, unknown>;
-  const body = ('steps' in raw ? raw : (raw['spec'] as Record<string, unknown> | undefined)) ?? {};
+  // An explicit `spec` wrapper wins. A run artifact carries both the flow spec
+  // and a per-step summary of what happened, and both are plausibly called
+  // "steps"; picking the summary yields steps with no id or input, and linkage
+  // then fails against a run that is actually sound.
+  const wrapper = raw['spec'] as Record<string, unknown> | undefined;
+  const body = (wrapper !== undefined && Array.isArray(wrapper['steps']) ? wrapper : raw) ?? {};
   const steps = body['steps'];
   if (!Array.isArray(steps)) {
     throw new Error(`${specPath} has no "steps" array; expected a flow spec or a run bundle`);
@@ -113,9 +118,15 @@ export function loadSpec(specPath: string, inputsPath: string | undefined): Spec
   }
 
   return {
-    steps: steps.map((s) => {
+    steps: steps.map((s, i) => {
       const step = s as Record<string, unknown>;
       const needs = step['needs'];
+      if (typeof step['id'] !== 'string' || step['id'].length === 0) {
+        // Refusing beats checking linkage for a step called "undefined".
+        throw new Error(
+          `${specPath}: step ${i} has no "id"; this looks like a run summary rather than a flow spec`,
+        );
+      }
       return {
         id: String(step['id']),
         input: (step['input'] ?? {}) as JsonValue,

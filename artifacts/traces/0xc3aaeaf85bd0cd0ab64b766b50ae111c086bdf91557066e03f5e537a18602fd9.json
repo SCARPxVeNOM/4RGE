@@ -1,0 +1,1 @@
+{"agent":"1","attestation":null,"error":null,"input":{"report":"1 issues requiring review"},"output":{"basis":25,"value":60},"retries":[{"attempt":1,"delayMs":10,"error":""}],"runId":"0x4e2bb6fa7976fc717cb48a0e1fe54744dd2777812ea50bd1928d24da5250357c","stepId":"score","stepIndex":2,"timings":{"durationMs":12,"endedAt":1787182026204,"startedAt":1787182026192},"version":"0gflow/1"}

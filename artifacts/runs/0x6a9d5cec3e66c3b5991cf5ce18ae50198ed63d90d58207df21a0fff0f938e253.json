@@ -1,0 +1,57 @@
+{
+  "scenario": "unattested",
+  "description": "a step requires an attestation and the agent does not provide one",
+  "network": "galileo",
+  "chainId": 16602,
+  "runId": "0x6a9d5cec3e66c3b5991cf5ce18ae50198ed63d90d58207df21a0fff0f938e253",
+  "flowId": "0xcf3a8c9cc899db6aabd96de61c7afe5b8815228bb820f7a6bc15eb3061645ed4",
+  "chainRoot": "0x5f808e25278b859c5ad5a6b212cf3ffc81befc4436979b47bc2c4c3920e11528",
+  "outcome": 3,
+  "succeeded": false,
+  "executor": "0x3274E860FA4d3372bD120b61367a7555713417A8",
+  "spec": {
+    "steps": [
+      {
+        "id": "audit",
+        "agent": "1",
+        "input": {
+          "repo": "{{ inputs.repoUrl }}"
+        }
+      },
+      {
+        "id": "summarize",
+        "agent": "1",
+        "needs": [
+          "audit"
+        ],
+        "requireAttestation": true,
+        "input": {
+          "text": "{{ steps.audit.output.report }}"
+        }
+      }
+    ]
+  },
+  "runInputs": {
+    "repoUrl": "https://github.com/0glabs/0g-chain"
+  },
+  "stepResults": [
+    {
+      "stepId": "audit",
+      "stepIndex": 0,
+      "status": 0,
+      "statusName": "ok",
+      "traceRoot": "0xb298158b8dd4af627067590f6e7eb53658bc4154efe316b403c04eb3f9e99bdd",
+      "txHash": "0x1bd0d6a9276cefb68b4e7f54416d7fd9e7de7058b9d4f94f5fa04b7956fbf504",
+      "error": null
+    },
+    {
+      "stepId": "summarize",
+      "stepIndex": 1,
+      "status": 3,
+      "statusName": "unattested",
+      "traceRoot": "0xeec3659290e1aa52fa5a9adcc361c674f4f44013780fb8c66a3948b10a1ae82f",
+      "txHash": "0xc840e37018eec0d84cdaa55ccc336f83926657ffb907973fb7db856ad2d6c7db",
+      "error": null
+    }
+  ]
+}

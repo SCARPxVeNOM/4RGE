@@ -15,6 +15,9 @@ Phase 1 — Foundation. Everything below is implemented, tested, and green.
 | `packages/core` | Canonicalization (§5.2), hashing, receipt encoding, chain root (§1.1), templates (§5.1), **linkage invariant (§4.1)**, outcome reporting (§1.3/§10.3) |
 | `packages/config` | Every network-specific value (§2), and nothing else |
 | `packages/verify` | **The verifier CLI (§9)** — zero dependencies, single file |
+| `packages/executor` | Planner, HTTP adapter, executor, chain writer (§5.1, §6.1, §7) |
+| `tools/reference-agents` | Reference agents implementing the §6.1 contract |
+| `tools/run-flow` | Executes flows against the deployed contracts |
 | `contracts` | ExecutionReceipts, FlowRegistry, AgentAdapterRegistry, FlowEscrow (§4) |
 | `tools/attestation-probe` | Captures real TEE attestations from 0G Compute |
 | `tools/live-run` | Executes a real multi-step run against the deployed contracts |
@@ -23,12 +26,12 @@ Phase 1 — Foundation. Everything below is implemented, tested, and green.
 
 ```
 pnpm install
-pnpm test                 # 241 tests
+pnpm test                 # 341 tests
 pnpm typecheck
 pnpm test:contracts       # 66 tests
 ```
 
-**307 tests, all passing.** `packages/core` has **zero runtime dependencies**, so
+**407 tests, all passing.** `packages/core` has **zero runtime dependencies**, so
 the verifier CLI (§9) can bundle it into a single auditable file.
 
 ## Deployed on 0G Galileo (chain 16602)
@@ -189,6 +192,55 @@ fixtures:
    skipped, including when the real reason was unavailable traces — stating a
    confident wrong reason for not checking something.
 
+## Phase 3: real runs, end to end
+
+`pnpm --filter @0gflow/run-flow flow -- all` executes three flows against the
+deployed contracts, invoking the reference agents over real HTTP. Each is then
+verified independently by the CLI, which reads only chain logs and traces.
+
+| Scenario | Shape | Sealed outcome | Verifier |
+|---|---|---|---|
+| `success` | 4 steps, parallel branch | `0` ok | linkage ✓ 4/4, chain root ✓ |
+| `unattested` | step requires attestation, agent gives none | `3` unattested | linkage ✓ 2/2, step flagged `✗ required but absent` |
+| `failure` | middle step fails, next is skipped | `1` failed | linkage ✓ 3/3, chain root ✓ |
+
+All three cost 0.0075 A0GI in total.
+
+The `success` run is §11's completion gate — "verifier CLI passes against a
+live four-step run":
+
+```
+  [0] audit        id ✓   trace ✓   hashes ✓   attestation: not required
+  [1] summarize    id ✓   trace ✓   hashes ✓   attestation: TEE ✓
+  [2] score        id ✓   trace ✓   hashes ✓   attestation: not required
+  [3] publish      id ✓   trace ✓   hashes ✓   attestation: not required
+
+  Linkage      ✓   4/4 inputs derive from declared upstream outputs
+  Chain root   ✓   0x784439… matches on-chain seal
+```
+
+### What the failure run exposed
+
+It initially made the verifier report **FAILED** — which is wrong. §1.3 says
+failed runs are *verifiable as failures*; a failed run that fails verification
+is indistinguishable from a tampered one, and the entire point is that those
+are different.
+
+The cause was a semantic gap. A failed or skipped step anchors
+`outputHash = 0x00…`, which is a claim of **absence** — the step committed to
+nothing. The verifier was comparing that against `hashJson({})` from the trace
+and calling the mismatch tampering. Both `verifyLinkage` and the verifier now
+treat a zero hash as "no commitment" and skip the comparison — but only where
+the status explains it:
+
+> **An ok step may never commit to nothing.** Otherwise a step could pass every
+> hash check by claiming it produced nothing at all.
+
+`--tamper` still detects mutation, so the exemption did not become a hiding
+place. Nothing had exercised the failure path end to end until §11 forced it,
+which is the argument for building the failure demonstration rather than
+assuming it.
+
 ## Three places the implementation departs from the spec
 
 All flagged rather than silently absorbed.
@@ -269,16 +321,25 @@ writes.
 - [x] No mock or simulated path in what is demonstrated
 - [ ] Contracts source-verified on the explorer
 - [ ] 0G Storage round-trip *(blocked upstream, see above)*
-- [ ] A deliberately failed run, sealed and verifiable as a failure
+- [x] A deliberately failed run, sealed and verifiable as a failure
+- [x] Multi-step run including a parallel branch, executed against real agents
+- [x] Failure and unattested paths produce correct statuses on chain
 - [x] Verifier CLI (`npx @0gflow/verify`), zero dependencies, single file
 - [x] `--tamper` demonstrates detection
 
 ## Next
 
-The completion gate in §11 is the verifier passing against a live run, which it
-now does. What remains for Phase 3 is the executor's adapter invocation path
-(§6, §7) so runs come from real agent calls rather than a scripted harness, and
-a deliberately failed run sealed and verified as a failure.
+§11's completion gate is met: the verifier passes against a live multi-step run
+with a parallel branch, and the failure and unattested paths produce correct
+statuses on chain. Everything after this is Phase 4/5 surface area — indexer,
+explorer, adapter SDK, conformance suite, Python SDK.
 
-`npx @0gflow/verify` will return `VERIFIED` rather than `INCOMPLETE` as soon as
-0G Storage accepts writes again — nothing in the verifier needs to change.
+Two things are still open and neither is in our hands:
+
+- **0G Storage.** Every verdict above is `INCOMPLETE` rather than `VERIFIED`
+  solely because traces cannot be uploaded, so third-party retrievability is
+  unproven. Nothing in the verifier needs to change when writes are accepted
+  again.
+- **Attestation binding.** `attestationRef` digests the attestation blob but
+  does not bind it to the step's output; closing that needs the per-response
+  signature. See [`docs/attestation-structure.md`](docs/attestation-structure.md).

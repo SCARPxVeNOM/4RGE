@@ -91,6 +91,25 @@ importers:
         specifier: ^4.19.2
         version: 4.23.12
 
+  tools/run-flow:
+    dependencies:
+      '@0gflow/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@0gflow/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@0gflow/executor':
+        specifier: workspace:*
+        version: link:../../packages/executor
+      '@0gflow/reference-agents':
+        specifier: workspace:*
+        version: link:../reference-agents
+    devDependencies:
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.12
+
   tools/storage-roundtrip:
     dependencies:
       '@0gflow/config':

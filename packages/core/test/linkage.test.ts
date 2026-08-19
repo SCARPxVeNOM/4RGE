@@ -230,6 +230,60 @@ describe('structural validation', () => {
   });
 });
 
+describe('steps that did not succeed make no linkage claim', () => {
+  // §1.3: a run that fails is sealed and verifiable AS a failure. A failed or
+  // skipped step commits to no output — its receipt carries zero, which is a
+  // claim of absence, not a hash of empty data. Demanding that it link would
+  // make every failed run unverifiable, which is precisely backwards.
+
+  test('a failed step with no committed output does not fail linkage', () => {
+    const run = buildRun(LINEAR, RUN_INPUTS, OUTPUTS, {
+      summarize: { status: StepStatus.Failed, outputHash: ZERO_BYTES32 },
+    });
+    run.evidence[1]!.output = {};
+    const report = verifyLinkage(run);
+    expect(report.failures).toStrictEqual([]);
+    expect(report.ok).toBe(true);
+  });
+
+  test('a skipped step committing to neither input nor output is fine', () => {
+    const run = buildRun(LINEAR, RUN_INPUTS, OUTPUTS, {
+      audit: { status: StepStatus.Failed, outputHash: ZERO_BYTES32 },
+      summarize: { status: StepStatus.Skipped, inputHash: ZERO_BYTES32, outputHash: ZERO_BYTES32 },
+    });
+    run.evidence[0]!.output = {};
+    run.evidence[1]!.input = {};
+    run.evidence[1]!.output = {};
+    expect(verifyLinkage(run).ok).toBe(true);
+  });
+
+  test('an ok step may not claim to have committed nothing', () => {
+    // The rule that keeps the exemption honest: zero is only permitted where
+    // the status explains it. Otherwise a step could succeed while committing
+    // to nothing and escape every hash check.
+    const run = buildRun(LINEAR, RUN_INPUTS, OUTPUTS, {
+      summarize: { status: StepStatus.Ok, outputHash: ZERO_BYTES32 },
+    });
+    const report = verifyLinkage(run);
+    expect(report.ok).toBe(false);
+    expect(report.failures.join(' ')).toMatch(/commit|zero/i);
+  });
+
+  test('an unattested step still has to link, since it produced a real output', () => {
+    // Unattested means "we cannot attribute this output", not "there is none".
+    const run = buildRun(LINEAR, RUN_INPUTS, OUTPUTS, {
+      summarize: { status: StepStatus.Unattested },
+    });
+    expect(verifyLinkage(run).ok).toBe(true);
+
+    const tampered = buildRun(LINEAR, RUN_INPUTS, OUTPUTS, {
+      summarize: { status: StepStatus.Unattested },
+    });
+    tampered.evidence[1]!.output = { text: 'changed' };
+    expect(verifyLinkage(tampered).ok).toBe(false);
+  });
+});
+
 describe('status propagation', () => {
   test('rejects a successful step whose upstream did not succeed', () => {
     // §1.3: a step cannot legitimately succeed on data a failed step never
