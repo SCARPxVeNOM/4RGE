@@ -14,6 +14,7 @@ Phase 1 — Foundation. Everything below is implemented, tested, and green.
 |---|---|
 | `packages/core` | Canonicalization (§5.2), hashing, receipt encoding, chain root (§1.1), templates (§5.1), **linkage invariant (§4.1)**, outcome reporting (§1.3/§10.3) |
 | `packages/config` | Every network-specific value (§2), and nothing else |
+| `packages/verify` | **The verifier CLI (§9)** — zero dependencies, single file |
 | `contracts` | ExecutionReceipts, FlowRegistry, AgentAdapterRegistry, FlowEscrow (§4) |
 | `tools/attestation-probe` | Captures real TEE attestations from 0G Compute |
 | `tools/live-run` | Executes a real multi-step run against the deployed contracts |
@@ -22,12 +23,12 @@ Phase 1 — Foundation. Everything below is implemented, tested, and green.
 
 ```
 pnpm install
-pnpm test                 # 185 tests
+pnpm test                 # 241 tests
 pnpm typecheck
 pnpm test:contracts       # 66 tests
 ```
 
-**251 tests, all passing.** `packages/core` has **zero runtime dependencies**, so
+**307 tests, all passing.** `packages/core` has **zero runtime dependencies**, so
 the verifier CLI (§9) can bundle it into a single auditable file.
 
 ## Deployed on 0G Galileo (chain 16602)
@@ -107,6 +108,86 @@ CLI get written on top.
 Solidity and TypeScript are cross-checked against each other:
 `test_ReceiptHashMatchesTypeScriptCore` pins
 `keccak256(abi.encode(Receipt))` to the same value both sides compute.
+
+## The verifier
+
+```
+npx @0gflow/verify <runId>
+```
+
+Zero runtime dependencies, one bundled file of ~1,400 readable lines importing
+nothing but `node:crypto`, `node:fs`, `node:https`, `node:os` and `node:path`.
+JSON-RPC and ABI decoding are hand-rolled: §9 makes auditability the point, and
+a tool with a large transitive dependency tree is not auditable. A test asserts
+the published package declares no dependencies and the bundle contains no bare
+imports, so this cannot rot.
+
+**Three verdicts, because two would force it to lie.** §1.3 says nothing
+reports success unless a third party can confirm it, so "I could not get the
+evidence" must not collapse into either pass or fail:
+
+| Verdict | Exit | Meaning |
+|---|---|---|
+| `VERIFIED` | 0 | every check ran and passed against retrievable public data |
+| `FAILED` | 1 | a check ran and did not pass |
+| `INCOMPLETE` | 2 | evidence was missing, so a check could not run |
+
+Failure outranks incompleteness, so a broken run cannot hide behind missing
+data. Against the live run, with 0G Storage down, it correctly refuses to say
+VERIFIED even though every check it *could* run passed:
+
+```
+  [0] audit        0x4109ce…   id ✓   trace ✓   hashes ✓   attestation: not required
+  [1] summarize    0x706edb…   id ✓   trace ✓   hashes ✓   attestation: not required
+
+  Linkage      ✓   2/2 inputs derive from declared upstream outputs
+  Chain root   ✓   0x52f5f4… matches on-chain seal
+  Outcome      ✓   success
+
+  Not checked:
+    ? not every trace was retrieved from 0G Storage with a verified inclusion
+      proof, so third-party retrievability is unproven
+
+  INCOMPLETE — nothing failed, but the evidence to finish verifying was not available
+```
+
+### `--tamper`
+
+Mutates a copy of a stored trace and shows the detection cascade:
+
+```
+  before  {"report":"no critical findings; 3 informational","severity":"info"}
+  after   {"report":"…","severity":"info","tamperedBy":"0gflow-verify --tamper"}
+
+  [0] audit        hashes ✗
+  Linkage      ✗   0/2 inputs derive from declared upstream outputs
+
+    ✗ step 0: the stored output hashes to 0x02d28b… but the receipt anchors 0x6cf9cf…
+    ✗ step "summarize": cannot re-derive input because upstream output "audit"
+      was not confirmed
+
+  TAMPER DETECTED
+```
+
+Note the second failure. Changing one step's output does not merely break that
+step's hash — it breaks the *next* step's linkage, because step 1's input can
+no longer be derived from an output nobody confirmed. That cascade is §4.1
+working.
+
+### Two bugs that only showed up against the real chain
+
+Both were the same species — a verifier claiming to have checked something it
+had not — and both were found by running it against Galileo rather than
+fixtures:
+
+1. **The 0G Storage indexer answers a missing file with HTTP 200** and a body
+   of `{"code":101,"message":"File not found"}`. Keying off the status code
+   handed that envelope to the verifier as though it were a trace, which then
+   reported a *failed* hash check for a file that simply was not there.
+   "Absent" and "wrong" are different answers.
+2. **The report printed "flow spec not supplied"** whenever linkage was
+   skipped, including when the real reason was unavailable traces — stating a
+   confident wrong reason for not checking something.
 
 ## Three places the implementation departs from the spec
 
@@ -189,11 +270,15 @@ writes.
 - [ ] Contracts source-verified on the explorer
 - [ ] 0G Storage round-trip *(blocked upstream, see above)*
 - [ ] A deliberately failed run, sealed and verifiable as a failure
-- [ ] Verifier CLI (`npx @0gflow/verify`)
+- [x] Verifier CLI (`npx @0gflow/verify`), zero dependencies, single file
+- [x] `--tamper` demonstrates detection
 
 ## Next
 
-Phase 2 is unblocked: contracts are live, the core is frozen, and the
-anchor/seal/verify path is proven end to end. The natural next pieces are the
-verifier CLI (§9) — everything it needs already exists in `packages/core` — and
-the executor's adapter invocation path.
+The completion gate in §11 is the verifier passing against a live run, which it
+now does. What remains for Phase 3 is the executor's adapter invocation path
+(§6, §7) so runs come from real agent calls rather than a scripted harness, and
+a deliberately failed run sealed and verified as a failure.
+
+`npx @0gflow/verify` will return `VERIFIED` rather than `INCOMPLETE` as soon as
+0G Storage accepts writes again — nothing in the verifier needs to change.

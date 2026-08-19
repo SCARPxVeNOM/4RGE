@@ -1,0 +1,1 @@
+{"agent":"1","attestation":null,"error":null,"input":{"repo":"https://github.com/0glabs/0g-chain"},"output":{"report":"no critical findings; 3 informational","severity":"info"},"runId":"0xe5128a3c71359c4e22ed2ac8c84f8ee4c21e190a30b408a887343f9c530300d3","stepId":"audit","stepIndex":0,"version":"0gflow/1"}

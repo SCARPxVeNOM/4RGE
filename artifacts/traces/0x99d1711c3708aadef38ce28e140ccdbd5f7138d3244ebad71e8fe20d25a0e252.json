@@ -1,0 +1,1 @@
+{"agent":"1","attestation":null,"error":null,"input":{"text":"no critical findings; 3 informational"},"output":{"text":"The audit found no critical issues."},"runId":"0xe5128a3c71359c4e22ed2ac8c84f8ee4c21e190a30b408a887343f9c530300d3","stepId":"summarize","stepIndex":1,"version":"0gflow/1"}

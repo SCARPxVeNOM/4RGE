@@ -48,6 +48,13 @@ export {
 } from './linkage.js';
 
 export {
+  parseTrace,
+  TraceError,
+  type ExecutionTrace,
+  type TraceRetry,
+} from './trace.js';
+
+export {
   decideStepStatus,
   statusSucceeded,
   reportStepOutcome,

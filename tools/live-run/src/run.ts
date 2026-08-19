@@ -93,6 +93,27 @@ const OUTPUTS: Record<string, JsonValue> = {
 
 const AGENT_ID = 1n; // ERC-8004 token id
 
+/** The trace document a verifier reads (§7.6). traceRoot commits to exactly this. */
+function buildTrace(
+  stepId: string,
+  stepIndex: number,
+  input: JsonValue,
+  output: JsonValue,
+  runId: string,
+): JsonValue {
+  return {
+    version: '0gflow/1',
+    runId,
+    stepIndex,
+    stepId,
+    agent: AGENT_ID.toString(),
+    input,
+    output,
+    attestation: null,
+    error: null,
+  };
+}
+
 async function send(hash: `0x${string}`, label: string) {
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
   if (receipt.status !== 'success') throw new Error(`${label} reverted (${hash})`);
@@ -172,8 +193,10 @@ async function main() {
     outputHash: hashJson(OUTPUTS[step.id]!),
     // 0G Storage submissions are unavailable on Galileo (see README); this
     // commits to the canonical trace bytes we hold, which is a real
-    // commitment even though retrieval is pending.
-    traceRoot: hashJson({ step: step.id, input: resolvedInputs[i]!, output: OUTPUTS[step.id]! }),
+    // commitment even though retrieval is pending. The same document is
+    // written to artifacts/traces so the verifier can be run with
+    // --trace-dir until storage accepts writes again.
+    traceRoot: hashJson(buildTrace(step.id, i, resolvedInputs[i]!, OUTPUTS[step.id]!, runId)),
     attestationRef: ZERO_BYTES32,
     startedAt: BigInt(now + i * 2),
     endedAt: BigInt(now + i * 2 + 1),
@@ -304,6 +327,14 @@ async function main() {
   console.log(`\nrun outcome: ${runOutcome.kind}  (sealed outcome=${outcome}, sealedAt=${sealedAt})`);
   if (!isRunSuccess(runOutcome)) throw new Error('run did not report success');
 
+  // Write each trace under its own root so `--trace-dir` can find it.
+  const traceDir = fileURLToPath(new URL('../../../artifacts/traces', import.meta.url));
+  mkdirSync(traceDir, { recursive: true });
+  steps.forEach((step, i) => {
+    const doc = buildTrace(step.id, i, resolvedInputs[i]!, OUTPUTS[step.id]!, runId);
+    writeFileSync(`${traceDir}/${hashJson(doc)}.json`, canonicalize(doc));
+  });
+
   mkdirSync(OUT_DIR, { recursive: true });
   writeFileSync(
     `${OUT_DIR}/${runId}.json`,
@@ -318,6 +349,9 @@ async function main() {
         stepCount: Number(stepCount),
         executor: account.address,
         anchoredInOrder: anchorOrder,
+        // Enough for `npx @0gflow/verify --spec` to re-derive the linkage.
+        spec: { steps },
+        runInputs: RUN_INPUTS,
         receipts: fromChain.map((r) => ({ ...r, agentId: r.agentId.toString(), startedAt: r.startedAt.toString(), endedAt: r.endedAt.toString() })),
       },
       null,

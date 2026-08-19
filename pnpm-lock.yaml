@@ -25,6 +25,18 @@ importers:
 
   packages/core: {}
 
+  packages/verify:
+    devDependencies:
+      '@0gflow/config':
+        specifier: workspace:*
+        version: link:../config
+      '@0gflow/core':
+        specifier: workspace:*
+        version: link:../core
+      esbuild:
+        specifier: ^0.21.5
+        version: 0.21.5
+
   tools/attestation-probe:
     dependencies:
       '@0gflow/config':

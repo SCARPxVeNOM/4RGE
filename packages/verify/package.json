@@ -1,0 +1,23 @@
+{
+  "name": "@0gflow/verify",
+  "version": "1.0.0",
+  "description": "Independently verify a 0G Flow run from public data. Zero dependencies.",
+  "type": "module",
+  "bin": {
+    "0gflow-verify": "./dist/verify.mjs"
+  },
+  "main": "./dist/verify.mjs",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "node scripts/bundle.mjs"
+  },
+  "dependencies": {},
+  "license": "MIT",
+  "devDependencies": {
+    "@0gflow/core": "workspace:*",
+    "@0gflow/config": "workspace:*",
+    "esbuild": "^0.21.5"
+  }
+}

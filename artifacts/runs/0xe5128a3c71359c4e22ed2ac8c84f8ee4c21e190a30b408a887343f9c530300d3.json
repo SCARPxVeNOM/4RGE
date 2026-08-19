@@ -1,0 +1,64 @@
+{
+  "network": "galileo",
+  "chainId": 16602,
+  "explorer": "https://chainscan-galileo.0g.ai/tx/0xf735ffc4aeb287ef6f0652d4e9f6c5e3c32c340d9b89da8413b1eab1018d3055",
+  "flowId": "0xd0f3618976c4ae42150de06685cac0f4ee9dcf33043cb3d64ff2a11573914ab0",
+  "runId": "0xe5128a3c71359c4e22ed2ac8c84f8ee4c21e190a30b408a887343f9c530300d3",
+  "chainRoot": "0x52f5f40200fbcb6c5379d7012ebb5f4f5c3b956f5f410ea2238adcf967ad02cf",
+  "stepCount": 2,
+  "executor": "0x3274E860FA4d3372bD120b61367a7555713417A8",
+  "anchoredInOrder": [
+    1,
+    0
+  ],
+  "spec": {
+    "steps": [
+      {
+        "id": "audit",
+        "input": {
+          "repo": "{{ inputs.repoUrl }}"
+        }
+      },
+      {
+        "id": "summarize",
+        "needs": [
+          "audit"
+        ],
+        "input": {
+          "text": "{{ steps.audit.output.report }}"
+        }
+      }
+    ]
+  },
+  "runInputs": {
+    "repoUrl": "https://github.com/0glabs/0g-chain"
+  },
+  "receipts": [
+    {
+      "flowId": "0xd0f3618976c4ae42150de06685cac0f4ee9dcf33043cb3d64ff2a11573914ab0",
+      "runId": "0xe5128a3c71359c4e22ed2ac8c84f8ee4c21e190a30b408a887343f9c530300d3",
+      "stepIndex": 0,
+      "agentId": "1",
+      "inputHash": "0x1d2a15cc3361b434ca340f5142a4866dc0afe472fd621b81c632367f77e711d9",
+      "outputHash": "0x6cf9cfddc9026a0efad8bf5ad3d8cbec88963b1e0e06bf83b5795f9d5b958c07",
+      "traceRoot": "0x83c45931a3937886ab571238e4b77dc4535863fa38691f895303a6f47ee03241",
+      "attestationRef": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "startedAt": "1787174273",
+      "endedAt": "1787174274",
+      "status": 0
+    },
+    {
+      "flowId": "0xd0f3618976c4ae42150de06685cac0f4ee9dcf33043cb3d64ff2a11573914ab0",
+      "runId": "0xe5128a3c71359c4e22ed2ac8c84f8ee4c21e190a30b408a887343f9c530300d3",
+      "stepIndex": 1,
+      "agentId": "1",
+      "inputHash": "0x39f2c3ac1dd6b9ecc54a48cc472a6d70c0ffb116b27ef80af0a6695f79d65c22",
+      "outputHash": "0xc6aa49f35320e341b39af88e5a02f8130e9ac3222d51204ce249d7112a75b78d",
+      "traceRoot": "0x99d1711c3708aadef38ce28e140ccdbd5f7138d3244ebad71e8fe20d25a0e252",
+      "attestationRef": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "startedAt": "1787174275",
+      "endedAt": "1787174276",
+      "status": 0
+    }
+  ]
+}
