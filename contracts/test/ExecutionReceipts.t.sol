@@ -12,7 +12,7 @@ contract ExecutionReceiptsTest is Test {
 
     address internal executor = address(0xE1);
     address internal stranger = address(0xBAD);
-    address internal agent = address(0xAA);
+    uint256 internal agent = 1;
 
     bytes32 internal constant FLOW_ID = bytes32(uint256(0x11));
     bytes32 internal constant SPEC_ROOT = bytes32(uint256(0x12));
@@ -22,7 +22,7 @@ contract ExecutionReceiptsTest is Test {
         bytes32 indexed flowId,
         bytes32 indexed runId,
         uint32 indexed stepIndex,
-        address agentId,
+        uint256 agentId,
         bytes32 inputHash,
         bytes32 outputHash,
         bytes32 traceRoot,
@@ -77,7 +77,7 @@ contract ExecutionReceiptsTest is Test {
             flowId: 0x1111111111111111111111111111111111111111111111111111111111111111,
             runId: 0x2222222222222222222222222222222222222222222222222222222222222222,
             stepIndex: 7,
-            agentId: 0x00000000000000000000000000000000000000AA,
+            agentId: 1,
             inputHash: 0x3333333333333333333333333333333333333333333333333333333333333333,
             outputHash: 0x4444444444444444444444444444444444444444444444444444444444444444,
             traceRoot: 0x5555555555555555555555555555555555555555555555555555555555555555,
@@ -90,7 +90,7 @@ contract ExecutionReceiptsTest is Test {
         assertEq(abi.encode(r).length, 11 * 32, "receipt must encode as 11 static words");
         assertEq(
             keccak256(abi.encode(r)),
-            0x71574db4cd51506383f8a17050b5e5e63df758c656363598e85f74e4ce831de0,
+            0x8a5999198c4052570e862e464f36fe4af19f8f7211909027c89f72cee501a26d,
             "receipt hash diverged from @0gflow/core"
         );
     }

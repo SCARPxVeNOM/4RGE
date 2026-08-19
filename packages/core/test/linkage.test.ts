@@ -6,7 +6,7 @@ import type { JsonValue } from '../src/canonicalize.js';
 
 const FLOW_ID = '0x1111111111111111111111111111111111111111111111111111111111111111';
 const RUN_ID = '0x2222222222222222222222222222222222222222222222222222222222222222';
-const AGENT = '0x00000000000000000000000000000000000000aa';
+const AGENT = 1n;
 
 /**
  * Builds a run whose receipts are internally consistent with the supplied

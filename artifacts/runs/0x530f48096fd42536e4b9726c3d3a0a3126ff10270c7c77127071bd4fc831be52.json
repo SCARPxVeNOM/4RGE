@@ -1,0 +1,42 @@
+{
+  "network": "galileo",
+  "chainId": 16602,
+  "explorer": "https://chainscan-galileo.0g.ai/tx/0x05bdb4a8696df9e755527695bab5e72fe0782db5538ae97aa21eb9fa09ac0a51",
+  "flowId": "0xd0f3618976c4ae42150de06685cac0f4ee9dcf33043cb3d64ff2a11573914ab0",
+  "runId": "0x530f48096fd42536e4b9726c3d3a0a3126ff10270c7c77127071bd4fc831be52",
+  "chainRoot": "0x0fa7e8ef4f15125b5f72648fd59051df1b4f9f50c28dbd1b51c846524fce07c1",
+  "stepCount": 2,
+  "executor": "0x3274E860FA4d3372bD120b61367a7555713417A8",
+  "anchoredInOrder": [
+    1,
+    0
+  ],
+  "receipts": [
+    {
+      "flowId": "0xd0f3618976c4ae42150de06685cac0f4ee9dcf33043cb3d64ff2a11573914ab0",
+      "runId": "0x530f48096fd42536e4b9726c3d3a0a3126ff10270c7c77127071bd4fc831be52",
+      "stepIndex": 0,
+      "agentId": "1",
+      "inputHash": "0x1d2a15cc3361b434ca340f5142a4866dc0afe472fd621b81c632367f77e711d9",
+      "outputHash": "0x6cf9cfddc9026a0efad8bf5ad3d8cbec88963b1e0e06bf83b5795f9d5b958c07",
+      "traceRoot": "0x1ea968d5f00fb5945a7aa1f120e3135e6838a54d22be4f6dcb975132cf7c02cf",
+      "attestationRef": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "startedAt": "1787170217",
+      "endedAt": "1787170218",
+      "status": 0
+    },
+    {
+      "flowId": "0xd0f3618976c4ae42150de06685cac0f4ee9dcf33043cb3d64ff2a11573914ab0",
+      "runId": "0x530f48096fd42536e4b9726c3d3a0a3126ff10270c7c77127071bd4fc831be52",
+      "stepIndex": 1,
+      "agentId": "1",
+      "inputHash": "0x39f2c3ac1dd6b9ecc54a48cc472a6d70c0ffb116b27ef80af0a6695f79d65c22",
+      "outputHash": "0xc6aa49f35320e341b39af88e5a02f8130e9ac3222d51204ce249d7112a75b78d",
+      "traceRoot": "0x5260e8bac0e97851fa1ebbf3b0205b86e6b0469a35b0293c73b68d48eaa48d70",
+      "attestationRef": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "startedAt": "1787170219",
+      "endedAt": "1787170220",
+      "status": 0
+    }
+  ]
+}

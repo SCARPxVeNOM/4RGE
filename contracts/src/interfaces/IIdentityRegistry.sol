@@ -2,25 +2,25 @@
 pragma solidity 0.8.24;
 
 /// @title IIdentityRegistry
-/// @notice The slice of ERC-8004 identity that 0G Flow depends on.
+/// @notice The slice of agent identity that 0G Flow depends on.
 ///
-/// OPEN ITEM — PROVISIONAL SHAPE.
+/// RESOLVED AGAINST LIVE CONTRACTS (not assumed). Two registries are deployed
+/// on 0G Galileo and both are ERC-721:
 ///
-/// §2 states the ERC-8004 registries are pre-deployed on Galileo and that
-/// their addresses must be resolved before deploying replacements. This
-/// interface is the minimum 0G Flow needs, declared narrowly and deliberately:
-/// it is the only surface that has to change once the live registry's ABI is
-/// confirmed. Nothing else in the contracts references ERC-8004 directly.
+///   ERC-8004 Trustless Agent  0x7177a6867296406881E20d6647232314736Dd09A
+///                             name "ERC-8004 Trustless Agent", symbol AGENT
+///   0G Agentic ID (ERC-7857)  0x2700F6A3e505402C9daB154C5c6ab9cAEC98EF1F
+///                             name "Agentic ID", symbol AID
 ///
-/// Confirm against the deployed registry before Phase 2, in the same way the
-/// TEE attestation structure is being confirmed before attestationRef is
-/// finalised. Designing the rest of the system against a guessed ABI is the
-/// expensive way to discover it was wrong.
+/// Both identify an agent by uint256 token id and expose ownerOf(). This
+/// interface is therefore just the ERC-721 slice we need, which means
+/// AgentAdapterRegistry can point at either registry unchanged.
+///
+/// ERC-721 requires ownerOf() to revert for a nonexistent token, so
+/// "is this agent registered" is "does ownerOf not revert" — there is no
+/// separate existence method to call.
 interface IIdentityRegistry {
     /// @notice The account that controls an agent identity.
-    /// @dev Expected to revert or return address(0) for an unregistered agent.
-    function ownerOf(address agentId) external view returns (address);
-
-    /// @notice Whether an agent identity is registered and active.
-    function isRegistered(address agentId) external view returns (bool);
+    /// @dev Reverts if the token does not exist, per ERC-721.
+    function ownerOf(uint256 agentId) external view returns (address);
 }

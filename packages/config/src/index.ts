@@ -23,8 +23,18 @@ export interface ContractAddresses {
   readonly flowRegistry: Address | null;
   readonly agentAdapterRegistry: Address | null;
   readonly flowEscrow: Address | null;
-  /** ERC-8004 registries. Pre-deployed on Galileo (§2); resolve before deploying replacements. */
+  /**
+   * ERC-8004 IdentityRegistry. Pre-deployed on Galileo (§2), resolved by
+   * on-chain probe rather than assumed: name "ERC-8004 Trustless Agent",
+   * symbol AGENT, ERC-721 + Metadata.
+   */
   readonly identityRegistry: Address | null;
+  /**
+   * 0G's own agent identity (ERC-7857 "Agentic ID", symbol AID). An
+   * alternative to ERC-8004 that is also ERC-721 keyed by uint256 token id,
+   * so AgentAdapterRegistry can point at either without code changes.
+   */
+  readonly agenticIdRegistry: Address | null;
   readonly reputationRegistry: Address | null;
 }
 
@@ -55,6 +65,25 @@ const NO_CONTRACTS: ContractAddresses = {
   agentAdapterRegistry: null,
   flowEscrow: null,
   identityRegistry: null,
+  agenticIdRegistry: null,
+  reputationRegistry: null,
+};
+
+/**
+ * Agent registries already deployed on Galileo, each confirmed live by probing
+ * name()/symbol()/supportsInterface() rather than taken from documentation.
+ * Both are ERC-721, which is why Receipt.agentId is a uint256 token id and not
+ * an address.
+ */
+const GALILEO_CONTRACTS: ContractAddresses = {
+  // Deployed via CREATE2 with salt keccak256("0gflow.v1") at block 50316677,
+  // so the same addresses are reproducible on Aristotle (§12).
+  flowRegistry: '0xe09aC2F04Fc663dB9ddb2824d44d5B1AFe7fD53f',
+  executionReceipts: '0x741A36fAba40ee71223539a5A062FDEDC8574e30',
+  agentAdapterRegistry: '0x239E66ca972bdA91542BA78c12B3003EFED8389e',
+  flowEscrow: '0xC40aC67bF4d63D8CdFeCBb80cE1C357c90291C39',
+  identityRegistry: '0x7177a6867296406881E20d6647232314736Dd09A',
+  agenticIdRegistry: '0x2700F6A3e505402C9daB154C5c6ab9cAEC98EF1F',
   reputationRegistry: null,
 };
 
@@ -79,8 +108,8 @@ export const GALILEO: Network = {
   storageIndexerUrl: 'https://indexer-storage-testnet-turbo.0g.ai',
   computeBrokerUrl: null,
   resolved: true,
-  contracts: NO_CONTRACTS,
-  deploymentBlock: null,
+  contracts: GALILEO_CONTRACTS,
+  deploymentBlock: 50316677,
 };
 
 /**

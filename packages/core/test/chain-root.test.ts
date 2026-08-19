@@ -6,7 +6,7 @@ import { type Receipt, StepStatus, ZERO_BYTES32 } from '../src/receipt.js';
 const base = {
   flowId: '0x1111111111111111111111111111111111111111111111111111111111111111',
   runId: '0x2222222222222222222222222222222222222222222222222222222222222222',
-  agentId: '0x00000000000000000000000000000000000000aa',
+  agentId: 1n,
   attestationRef: ZERO_BYTES32,
   status: StepStatus.Ok,
 } as const;
@@ -32,8 +32,8 @@ const STEP_1: Receipt = {
 };
 
 // Independently computed with `cast abi-encode` + `cast keccak`.
-const ROOT_1 = '0x314397cfb6911b2fdda3bf3c9f82b4a25dcdf52ab3b21f3f87acce688db85da9';
-const ROOT_2 = '0x1d59a427636702cecfab9e80b5d0cf37339d1c08a259163b72dcf92a8d93735b';
+const ROOT_1 = '0x2fb759143ca82327cb57465ca87865ad96e8cf870893aa445bbc2d7045e8bb68';
+const ROOT_2 = '0xad6cdc56809f36caaefcae9c0e5b4edf2ddbab727a8a1ff8c7967299077ab494';
 
 describe('foldChainRoot', () => {
   test('a single receipt folds to keccak256(abi.encode(receipt))', () => {

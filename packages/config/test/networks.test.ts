@@ -57,16 +57,35 @@ describe('getNetwork', () => {
 });
 
 describe('contract addresses', () => {
-  test('are unset until deployment', () => {
-    // §10.4 requires deployed, source-verified addresses in the README. Until
-    // then these are null rather than a plausible-looking placeholder.
-    expect(GALILEO.contracts.executionReceipts).toBeNull();
-    expect(GALILEO.contracts.flowRegistry).toBeNull();
+  test('carry the Galileo deployment', () => {
+    // Deployed via CREATE2 with salt keccak256("0gflow.v1"); each address was
+    // confirmed to hold code on chain before being written here.
+    expect(GALILEO.contracts.executionReceipts).toMatch(/^0x[0-9a-fA-F]{40}$/);
+    expect(GALILEO.contracts.flowRegistry).toMatch(/^0x[0-9a-fA-F]{40}$/);
+    expect(GALILEO.contracts.agentAdapterRegistry).toMatch(/^0x[0-9a-fA-F]{40}$/);
+    expect(GALILEO.contracts.flowEscrow).toMatch(/^0x[0-9a-fA-F]{40}$/);
+    expect(GALILEO.deploymentBlock).toBe(50316677);
+  });
+
+  test('name both ERC-721 agent registries resolved on chain', () => {
+    // Resolved by probing name()/symbol()/supportsInterface(), not assumed.
+    expect(GALILEO.contracts.identityRegistry).toBe(
+      '0x7177a6867296406881E20d6647232314736Dd09A',
+    );
+    expect(GALILEO.contracts.agenticIdRegistry).toBe(
+      '0x2700F6A3e505402C9daB154C5c6ab9cAEC98EF1F',
+    );
+  });
+
+  test('leave genuinely unresolved addresses null', () => {
+    // §10.4: null rather than a plausible-looking placeholder.
+    expect(GALILEO.contracts.reputationRegistry).toBeNull();
   });
 
   test('requireAddress fails loudly rather than returning the zero address', () => {
-    expect(() => requireAddress(GALILEO, 'executionReceipts')).toThrow(ConfigError);
-    expect(() => requireAddress(GALILEO, 'executionReceipts')).toThrow(/not deployed|not set/i);
+    // reputationRegistry is still unresolved, so it stands in for the case.
+    expect(() => requireAddress(GALILEO, 'reputationRegistry')).toThrow(ConfigError);
+    expect(() => requireAddress(GALILEO, 'reputationRegistry')).toThrow(/not deployed|not set/i);
   });
 
   test('requireAddress returns a configured address', () => {

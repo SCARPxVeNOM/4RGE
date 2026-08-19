@@ -1,0 +1,19 @@
+{
+  "name": "@0gflow/storage-roundtrip",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Verifies a 0G Storage upload/download round trip and the trace Merkle root",
+  "type": "module",
+  "scripts": {
+    "roundtrip": "tsx src/roundtrip.ts"
+  },
+  "dependencies": {
+    "@0glabs/0g-ts-sdk": "^0.3.3",
+    "@0gflow/config": "workspace:*",
+    "ethers": "^6.13.0",
+    "@0gflow/core": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2"
+  }
+}

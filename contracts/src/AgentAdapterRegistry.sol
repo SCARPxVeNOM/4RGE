@@ -7,14 +7,14 @@ import {IIdentityRegistry} from "./interfaces/IIdentityRegistry.sol";
 /// @notice ERC-8004 establishes agent identity; this registry establishes
 /// invocation — spec §4.3.
 ///
-/// Registration is permissionless, gated only on ERC-8004 ownership. Anyone
+/// Registration is permissionless, gated only on registry ownership. Anyone
 /// who controls an agent identity may publish how to call it; nobody may
 /// publish on behalf of an identity they do not control.
 contract AgentAdapterRegistry {
     uint8 internal constant KIND_MAX = 2; // 0 http · 1 contract · 2 0g-compute
 
     struct Adapter {
-        address agentId;
+        uint256 agentId;
         uint8 kind;
         string endpoint;
         bytes32 schemaRoot; // 0G Storage root of input/output JSON Schema
@@ -24,12 +24,12 @@ contract AgentAdapterRegistry {
 
     IIdentityRegistry public immutable identityRegistry;
 
-    mapping(address => Adapter) private _adapters;
-    address[] private _registered;
-    mapping(address => bool) private _known;
+    mapping(uint256 => Adapter) private _adapters;
+    uint256[] private _registered;
+    mapping(uint256 => bool) private _known;
 
     event AdapterRegistered(
-        address indexed agentId,
+        uint256 indexed agentId,
         address indexed owner,
         uint8 kind,
         string endpoint,
@@ -38,12 +38,12 @@ contract AgentAdapterRegistry {
         bool active
     );
 
-    error NotIdentityOwner(address agentId, address caller, address owner);
-    error AgentNotRegistered(address agentId);
+    error NotIdentityOwner(uint256 agentId, address caller, address owner);
+    error AgentNotRegistered(uint256 agentId);
     error UnknownKind(uint8 kind);
     error EmptyEndpoint();
     error VersionNotIncreasing(uint32 submitted, uint32 current);
-    error NoAdapter(address agentId);
+    error NoAdapter(uint256 agentId);
 
     constructor(address identityRegistry_) {
         identityRegistry = IIdentityRegistry(identityRegistry_);
@@ -51,9 +51,16 @@ contract AgentAdapterRegistry {
 
     /// @notice Registers or updates the adapter for an agent identity.
     function registerAdapter(Adapter calldata a) external {
-        if (!identityRegistry.isRegistered(a.agentId)) revert AgentNotRegistered(a.agentId);
-
-        address owner = identityRegistry.ownerOf(a.agentId);
+        // ERC-721 ownerOf reverts for a nonexistent token, so existence and
+        // ownership are the same call. Catching the revert lets us report
+        // "no such agent" distinctly from "not your agent".
+        address owner;
+        try identityRegistry.ownerOf(a.agentId) returns (address resolved) {
+            owner = resolved;
+        } catch {
+            revert AgentNotRegistered(a.agentId);
+        }
+        if (owner == address(0)) revert AgentNotRegistered(a.agentId);
         if (owner != msg.sender) revert NotIdentityOwner(a.agentId, msg.sender, owner);
 
         if (a.kind > KIND_MAX) revert UnknownKind(a.kind);
@@ -77,12 +84,12 @@ contract AgentAdapterRegistry {
         );
     }
 
-    function getAdapter(address agentId) external view returns (Adapter memory) {
+    function getAdapter(uint256 agentId) external view returns (Adapter memory) {
         if (!_known[agentId]) revert NoAdapter(agentId);
         return _adapters[agentId];
     }
 
-    function hasAdapter(address agentId) external view returns (bool) {
+    function hasAdapter(uint256 agentId) external view returns (bool) {
         return _known[agentId];
     }
 

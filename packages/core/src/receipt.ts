@@ -26,8 +26,17 @@ export interface Receipt {
   readonly flowId: Hex;
   readonly runId: Hex;
   readonly stepIndex: number;
-  /** ERC-8004 identity. */
-  readonly agentId: Hex;
+  /**
+   * Agent identity as an ERC-721 token id.
+   *
+   * NOT an address. Both agent registries live on 0G Galileo identify agents
+   * by token id, not by account address: ERC-8004 (0x7177a686…, "ERC-8004
+   * Trustless Agent"/AGENT) and 0G's own ERC-7857 Agentic ID (0x2700F6A3…,
+   * "Agentic ID"/AID). Nothing constrains a token id to 20 bytes, so
+   * narrowing this to an address would collide distinct agents. See
+   * docs/agent-identity.md.
+   */
+  readonly agentId: bigint;
   /** sha256 of canonical JSON input. */
   readonly inputHash: Hex;
   /** sha256 of canonical JSON output. */
@@ -75,7 +84,7 @@ export function encodeReceipt(r: Receipt): Hex {
     encodeFixedBytes(r.flowId, 32, 'flowId'),
     encodeFixedBytes(r.runId, 32, 'runId'),
     encodeUint(r.stepIndex, 32, 'stepIndex'),
-    encodeFixedBytes(r.agentId, 20, 'agentId'),
+    encodeUint(r.agentId, 256, 'agentId'),
     encodeFixedBytes(r.inputHash, 32, 'inputHash'),
     encodeFixedBytes(r.outputHash, 32, 'outputHash'),
     encodeFixedBytes(r.traceRoot, 32, 'traceRoot'),

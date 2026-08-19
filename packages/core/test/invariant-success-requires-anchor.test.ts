@@ -35,7 +35,7 @@ const receipt: Receipt = {
   flowId: '0x1111111111111111111111111111111111111111111111111111111111111111',
   runId: RUN_ID,
   stepIndex: 0,
-  agentId: '0x00000000000000000000000000000000000000aa',
+  agentId: 1n,
   inputHash: '0x' + '33'.repeat(32),
   outputHash: '0x' + '44'.repeat(32),
   traceRoot: '0x' + '55'.repeat(32),

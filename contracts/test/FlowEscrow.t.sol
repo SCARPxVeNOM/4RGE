@@ -14,6 +14,7 @@ contract FlowEscrowTest is Test {
     address internal executor = address(0xE1);
     address internal funder = address(0xF1);
     address internal agentA = address(0xA1);
+    uint256 internal constant AGENT_ID = 1;
     address internal agentB = address(0xA2);
 
     bytes32 internal constant FLOW_ID = bytes32(uint256(0x11));
@@ -50,7 +51,7 @@ contract FlowEscrowTest is Test {
                 flowId: FLOW_ID,
                 runId: RUN_ID,
                 stepIndex: stepIndex,
-                agentId: agentA,
+                agentId: AGENT_ID,
                 inputHash: keccak256("in"),
                 outputHash: keccak256("out"),
                 traceRoot: keccak256("trace"),

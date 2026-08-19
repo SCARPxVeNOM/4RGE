@@ -20,7 +20,7 @@ contract ExecutionReceipts {
         bytes32 flowId; // keccak256 of canonical workflow spec
         bytes32 runId; // unique per execution
         uint32 stepIndex;
-        address agentId; // ERC-8004 identity
+        uint256 agentId; // agent identity as an ERC-721 token id (see IIdentityRegistry)
         bytes32 inputHash; // sha256 of canonical JSON input
         bytes32 outputHash; // sha256 of canonical JSON output
         bytes32 traceRoot; // 0G Storage Merkle root of execution trace
@@ -56,7 +56,7 @@ contract ExecutionReceipts {
         bytes32 indexed flowId,
         bytes32 indexed runId,
         uint32 indexed stepIndex,
-        address agentId,
+        uint256 agentId,
         bytes32 inputHash,
         bytes32 outputHash,
         bytes32 traceRoot,
