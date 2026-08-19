@@ -1,0 +1,13 @@
+{
+  "name": "@0gflow/config",
+  "version": "1.0.0",
+  "description": "Every network-specific value in 0G Flow, and nothing else",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "files": ["dist"],
+  "scripts": { "build": "tsc -b" },
+  "dependencies": {},
+  "license": "MIT"
+}

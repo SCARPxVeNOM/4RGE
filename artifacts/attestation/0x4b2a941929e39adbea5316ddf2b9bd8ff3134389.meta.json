@@ -1,0 +1,9 @@
+{
+  "provider": "0x4b2a941929E39Adbea5316dDF2B9Bd8Ff3134389",
+  "model": "qwen/qwen-image-edit-2511",
+  "url": "https://compute-network-17.integratenetwork.work",
+  "capturedAt": "2026-08-19T17:37:40.315Z",
+  "byteLength": 43258,
+  "sha256": "0xb68593510afed246d06a1119ef4fa3a741c80bd00610269b40aa0b4e71ed2a4c",
+  "note": "sha256 is taken over the raw response bytes exactly as received; this is the attestationRef preimage"
+}

@@ -1,0 +1,25 @@
+{
+  "name": "0g-flow",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Verifiable agent workflows on 0G",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -b --force",
+    "test:contracts": "forge test --root contracts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "fast-check": "^3.23.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "packageManager": "pnpm@10.34.5",
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  }
+}

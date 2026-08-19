@@ -1,0 +1,9 @@
+{
+  "provider": "0xa48f01287233509FD694a22Bf840225062E67836",
+  "model": "qwen/qwen2.5-omni-7b",
+  "url": "https://compute-network-6.integratenetwork.work",
+  "capturedAt": "2026-08-19T17:37:38.448Z",
+  "byteLength": 49773,
+  "sha256": "0x946d86e0b851d4fc4d75daf8aea4032f0c4d64a739978898ca6e8d2a8aa097cc",
+  "note": "sha256 is taken over the raw response bytes exactly as received; this is the attestationRef preimage"
+}

@@ -1,0 +1,16 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+test = "test"
+solc_version = "0.8.24"
+optimizer = true
+optimizer_runs = 200
+# CREATE2 with a fixed salt gives identical addresses across Galileo and
+# Aristotle (§12), so bytecode must be reproducible.
+bytecode_hash = "none"
+cbor_metadata = false
+
+[fmt]
+line_length = 100
+tab_width = 4

@@ -1,0 +1,16 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Foundry
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+
+# Secrets — never commit a funded key
+.env
+.env.*
+!.env.example
+
+# Captured attestations under artifacts/ ARE committed: they are the evidence
+# behind docs/attestation-structure.md and the fixtures its tests run against.
