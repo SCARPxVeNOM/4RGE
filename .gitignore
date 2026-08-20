@@ -15,3 +15,4 @@ contracts/broadcast/
 
 # Captured attestations under artifacts/ ARE committed: they are the evidence
 # behind docs/attestation-structure.md and the fixtures its tests run against.
+apps/*/dist/

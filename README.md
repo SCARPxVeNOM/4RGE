@@ -18,6 +18,9 @@ Phase 1 — Foundation. Everything below is implemented, tested, and green.
 | `packages/executor` | Planner, HTTP adapter, executor, chain writer (§5.1, §6.1, §7) |
 | `tools/reference-agents` | Reference agents implementing the §6.1 contract |
 | `tools/run-flow` | Executes flows against the deployed contracts |
+| `packages/indexer` | Chain events into Postgres 16, with backfill and reorg handling (§8.1) |
+| `packages/explorer-api` | Public read-only API over the index (§8.2) |
+| `apps/explorer` | React explorer with client-side verification (§8.2) |
 | `contracts` | ExecutionReceipts, FlowRegistry, AgentAdapterRegistry, FlowEscrow (§4) |
 | `tools/attestation-probe` | Captures real TEE attestations from 0G Compute |
 | `tools/live-run` | Executes a real multi-step run against the deployed contracts |
@@ -26,12 +29,12 @@ Phase 1 — Foundation. Everything below is implemented, tested, and green.
 
 ```
 pnpm install
-pnpm test                 # 341 tests
+pnpm test                 # 429 tests
 pnpm typecheck
 pnpm test:contracts       # 66 tests
 ```
 
-**407 tests, all passing.** `packages/core` has **zero runtime dependencies**, so
+**495 tests, all passing.** `packages/core` has **zero runtime dependencies**, so
 the verifier CLI (§9) can bundle it into a single auditable file.
 
 ## Deployed on 0G Galileo (chain 16602)
@@ -240,6 +243,68 @@ the status explains it:
 place. Nothing had exercised the failure path end to end until §11 forced it,
 which is the argument for building the failure demonstration rather than
 assuming it.
+
+## Indexer and explorer
+
+```
+docker run -d --name 0gflow-pg -e POSTGRES_PASSWORD=0gflow   -e POSTGRES_USER=0gflow -e POSTGRES_DB=0gflow -p 55432:5432 postgres:16-alpine
+
+export DATABASE_URL=postgres://0gflow:0gflow@localhost:55432/0gflow
+pnpm --filter @0gflow/indexer index --once      # backfill from the deployment block
+pnpm --filter @0gflow/explorer-api serve        # :8711
+pnpm --filter @0gflow/explorer dev              # :5173
+```
+
+The indexer backfills from the deployment block and follows the head. All five
+live runs index correctly and re-indexing is idempotent.
+
+**Reorgs (§8.1).** Rows record the block they came from, so they can be undone.
+Each pass re-checks the unfinalised tail against the chain's current block
+hashes; the first mismatch means everything above it describes a chain that no
+longer exists, so those rows are dropped and the range is rescanned. Blocks
+below the finality depth are never re-checked — re-verifying the whole chain
+every pass would make the indexer O(chain). That tradeoff has its own test
+asserting a deep reorg is *not* detected, so the limit is documented rather
+than discovered.
+
+**Two stores, one suite.** `MemoryStore` makes the ingestion logic testable
+without infrastructure; `PostgresStore` is what runs. Both are held to the same
+conformance suite, so a divergence is a failing test rather than a
+production-only surprise. The Postgres case skips when no database is
+reachable and says so out loud, because a green suite that quietly skipped the
+production store is worse than a red one.
+
+### The explorer does not ask to be trusted
+
+§8.2 requires client-side verification, and it means it. The API serves the raw
+receipt fields rather than a verdict, and the browser folds the chain root
+itself using the same frozen `@0gflow/core` the executor and verifier use:
+
+> **Chain root verified in your browser.** The receipts served by this API fold
+> to `0x784439c4a85ff5…0ca4`, which is the root sealed on chain. Recomputed
+> here with the same `@0gflow/core` the executor and verifier use — this page
+> did not take the API's word for it.
+
+If the API were lying, or merely wrong, the fold would not match and the page
+says so. It is also explicit about its limits: it cannot fetch traces, so it
+never claims a run is *verified* — only that the chain root holds — and it
+prints the `npx @0gflow/verify` command for the rest.
+
+### Making core browser-safe
+
+Building the explorer surfaced a real constraint. `@0gflow/core` used
+`node:crypto` for sha256, so it could not bundle for a browser at all:
+
+```
+"createHash" is not exported by "__vite-browser-external"
+```
+
+§5.2 makes core the single implementation shared by five components and §8.2
+adds a sixth that runs in a browser, so sha256 is now hand-written in pure
+TypeScript alongside keccak256. A test asserts core imports nothing from
+`node:`, uses no `require()`, and touches no Node globals — the guard that
+keeps it true. The published conformance vectors pinned correctness through
+the swap.
 
 ## Three places the implementation departs from the spec
 

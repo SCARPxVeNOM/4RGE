@@ -1,0 +1,19 @@
+{
+  "name": "@0gflow/indexer",
+  "version": "1.0.0",
+  "description": "Indexes 0G Flow events into Postgres, with backfill and reorg handling",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "files": ["dist"],
+  "scripts": { "build": "tsc -b", "index": "tsx src/cli.ts" },
+  "dependencies": {
+    "@0gflow/config": "workspace:*",
+    "@0gflow/core": "workspace:*",
+    "@0gflow/verify": "workspace:*",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": { "@types/pg": "^8.11.10", "tsx": "^4.19.2" },
+  "license": "MIT"
+}
