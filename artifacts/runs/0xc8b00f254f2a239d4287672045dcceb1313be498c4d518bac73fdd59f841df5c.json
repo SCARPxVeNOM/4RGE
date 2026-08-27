@@ -1,0 +1,96 @@
+{
+  "scenario": "success",
+  "description": "four steps with a parallel branch; every step succeeds",
+  "network": "galileo",
+  "chainId": 16602,
+  "runId": "0xc8b00f254f2a239d4287672045dcceb1313be498c4d518bac73fdd59f841df5c",
+  "flowId": "0x6722971e813a55300d4bfbbc7e84fd34d2f7dab62bf5ecdb92fd2df8796f84f6",
+  "chainRoot": "0xdc908a5d2203b01007de6b6ef8053f750fa80e1711f208991ffdaec45ab26c29",
+  "outcome": 0,
+  "succeeded": true,
+  "executor": "0x3274E860FA4d3372bD120b61367a7555713417A8",
+  "spec": {
+    "steps": [
+      {
+        "id": "audit",
+        "agent": "1",
+        "input": {
+          "repo": "{{ inputs.repoUrl }}"
+        }
+      },
+      {
+        "id": "summarize",
+        "agent": "1",
+        "needs": [
+          "audit"
+        ],
+        "input": {
+          "text": "{{ steps.audit.output.report }}"
+        }
+      },
+      {
+        "id": "score",
+        "agent": "1",
+        "needs": [
+          "audit"
+        ],
+        "input": {
+          "report": "{{ steps.audit.output.report }}"
+        }
+      },
+      {
+        "id": "publish",
+        "agent": "1",
+        "needs": [
+          "summarize",
+          "score"
+        ],
+        "input": {
+          "body": "{{ steps.summarize.output.text }}",
+          "grade": "{{ steps.score.output.value }}"
+        }
+      }
+    ]
+  },
+  "runInputs": {
+    "repoUrl": "https://github.com/0glabs/0g-chain"
+  },
+  "stepResults": [
+    {
+      "stepId": "audit",
+      "stepIndex": 0,
+      "status": 0,
+      "statusName": "ok",
+      "traceRoot": "0x498b992af3912cc6a95d3bc935f878bc2dcd32ce2438b359c0a454b570726806",
+      "txHash": "0xc88047879a933d5abdac34fdc19ba52d16e12f00fa202910871dbbff6861adfc",
+      "error": null
+    },
+    {
+      "stepId": "summarize",
+      "stepIndex": 1,
+      "status": 0,
+      "statusName": "ok",
+      "traceRoot": "0xc2e5ea3d9920a22b7aa49100b80378f06f37fed10061ffae577e31621ea81d71",
+      "txHash": "0xe6e01c2ba90da714f9d8ed8b912b95d100b94d64731106426a56be965ff94d21",
+      "error": null
+    },
+    {
+      "stepId": "score",
+      "stepIndex": 2,
+      "status": 0,
+      "statusName": "ok",
+      "traceRoot": "0xe50924bbd66f4fe03f5e623a50ec18b77d6274b73ff4c7e0af4a06bc8be97a3e",
+      "txHash": "0x895142c2d543ba6a4e8c1fcfdaf984a6547c4ed043e7507e6ab3166aceab7969",
+      "error": null
+    },
+    {
+      "stepId": "publish",
+      "stepIndex": 3,
+      "status": 0,
+      "statusName": "ok",
+      "traceRoot": "0x4a7f5285f1ec8999e4a58238ea401ea0cb0ad5a9421f0e868042ee73b4d807eb",
+      "txHash": "0xa219aec2794835627af03bf383a3e32ee80d5d0a86b14f0578f305e7bf4e2e16",
+      "error": null
+    }
+  ]
+}

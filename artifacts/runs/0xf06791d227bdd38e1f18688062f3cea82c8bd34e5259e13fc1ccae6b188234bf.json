@@ -1,0 +1,76 @@
+{
+  "scenario": "failure",
+  "description": "a middle step fails; the step behind it is skipped",
+  "network": "galileo",
+  "chainId": 16602,
+  "runId": "0xf06791d227bdd38e1f18688062f3cea82c8bd34e5259e13fc1ccae6b188234bf",
+  "flowId": "0xf1e41ef9f77579c1883a3974d5bfbff7e635fe49d1c661d74bced00479d7c22d",
+  "chainRoot": "0x633b2327d51f07a4ceac2bf08772d68d71fc47b3097c1d5bc80f4de957aee6f5",
+  "outcome": 1,
+  "succeeded": false,
+  "executor": "0x3274E860FA4d3372bD120b61367a7555713417A8",
+  "spec": {
+    "steps": [
+      {
+        "id": "audit",
+        "agent": "1",
+        "input": {
+          "repo": "{{ inputs.repoUrl }}"
+        }
+      },
+      {
+        "id": "review",
+        "agent": "1",
+        "needs": [
+          "audit"
+        ],
+        "input": {
+          "text": "{{ steps.audit.output.report }}"
+        }
+      },
+      {
+        "id": "publish",
+        "agent": "1",
+        "needs": [
+          "review"
+        ],
+        "input": {
+          "body": "{{ steps.review.output.text }}",
+          "grade": 1
+        }
+      }
+    ]
+  },
+  "runInputs": {
+    "repoUrl": "https://github.com/0glabs/0g-chain"
+  },
+  "stepResults": [
+    {
+      "stepId": "audit",
+      "stepIndex": 0,
+      "status": 0,
+      "statusName": "ok",
+      "traceRoot": "0x1b95c6cfc59bb025fcc5e90cf127c44725bd8333db18e4918183eab08f1acbe8",
+      "txHash": "0xc4a32927de9a16f17a0ee74b360a0149fc8330564a7c9e039080bc57017787c3",
+      "error": null
+    },
+    {
+      "stepId": "review",
+      "stepIndex": 1,
+      "status": 1,
+      "statusName": "failed",
+      "traceRoot": "0xb1ae7a27052cff0c8f2b49c9bcc52628c5226c791db2a323d63bd710594de1d9",
+      "txHash": "0x7dbcb17c455fe7c7d686b613d3a57e60b51f47886b16572940f7fec5d9328921",
+      "error": "this agent fails deliberately, to exercise the failure path"
+    },
+    {
+      "stepId": "publish",
+      "stepIndex": 2,
+      "status": 2,
+      "statusName": "skipped",
+      "traceRoot": "0xbf0b57a93998df05a7add30505827af35705d634068b5072abed020a8ccc14f3",
+      "txHash": "0x7b722289b18be4714fe0f9edc6d1b7a5b444bf2fb201dc338d45bdddd43db2a2",
+      "error": "upstream step \"review\" did not succeed"
+    }
+  ]
+}
