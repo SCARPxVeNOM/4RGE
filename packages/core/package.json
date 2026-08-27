@@ -16,5 +16,8 @@
     "build": "tsc -b"
   },
   "dependencies": {},
+  "devDependencies": {
+    "viem": "^2.21.55"
+  },
   "license": "MIT"
 }

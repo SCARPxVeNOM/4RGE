@@ -64,6 +64,37 @@ export class SchemaError extends AgentError {
   }
 }
 
+/**
+ * The per-response signature that ties an attestation to *this* output.
+ *
+ * An attestation without one proves an enclave exists somewhere; it says
+ * nothing about the answer being returned. An agent fronting 0G Compute gets
+ * this from `GET {url}/v1/proxy/signature/{chatID}?model={model}`.
+ *
+ * Do not copy the SDK's own check here. `Verifier.verifySignature` compares the
+ * signature against the `text` that same endpoint returned, never against the
+ * completion the caller received — so it passes even when a provider serves one
+ * response and signs another. The executor performs the comparison the SDK
+ * omits, using `outputPath`.
+ */
+export interface AttestationBinding {
+  readonly chatID: string;
+  readonly model: string;
+  /** The text the enclave signed, verbatim. */
+  readonly text: string;
+  /** The 65-byte signature, 0x hex, exactly as returned. */
+  readonly signature: string;
+  /**
+   * Which part of `output` the signed text is: `$` for the whole output, or a
+   * path such as `$.text`.
+   *
+   * State it rather than leaving it to convention. If it does not resolve to
+   * the signed text the executor records the step as unattested, which is the
+   * correct outcome for an attestation that does not describe the answer.
+   */
+  readonly outputPath: string;
+}
+
 export interface AgentResponse {
   readonly output: JsonValue;
   /**
@@ -72,6 +103,11 @@ export interface AgentResponse {
    * against what the provider actually sent.
    */
   readonly attestation?: string | null;
+  /**
+   * The signature binding `attestation` to `output`. Without it the strongest
+   * level a step can reach is `present`.
+   */
+  readonly attestationBinding?: AttestationBinding | null;
 }
 
 export interface AgentDefinition {
@@ -126,11 +162,28 @@ export async function handleInvoke(
       );
     }
 
+    const binding = result.attestationBinding ?? null;
+    if (binding !== null) {
+      // A half-filled binding is worse than none: the executor would digest
+      // fields a verifier cannot check, and the step would look attested.
+      for (const field of ['chatID', 'model', 'text', 'signature', 'outputPath'] as const) {
+        if (typeof binding[field] !== 'string' || binding[field].length === 0) {
+          throw new AgentError(
+            `attestationBinding.${field} must be a non-empty string`,
+            'bad-binding',
+            false,
+            500,
+          );
+        }
+      }
+    }
+
     return {
       status: 200,
       body: {
         output: result.output,
         attestation: result.attestation ?? null,
+        attestationBinding: binding === null ? null : { ...binding },
       },
     };
   } catch (error) {

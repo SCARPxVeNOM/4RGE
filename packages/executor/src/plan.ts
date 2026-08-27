@@ -17,6 +17,7 @@ import {
   keccak256,
   referencedSteps,
   TemplateError,
+  type BindingLevel,
   type Hex,
   type JsonValue,
 } from '@0gflow/core';
@@ -34,6 +35,18 @@ export interface StepSpec {
   readonly kind?: string;
   readonly model?: string;
   readonly requireAttestation?: boolean;
+  /**
+   * How much the attestation must actually establish. Defaults to `present`,
+   * which is what `requireAttestation` alone has always meant: a document was
+   * returned.
+   *
+   * `bound` is the level that makes the attestation say something about this
+   * step — that the key named in the quote signed this output. A flow handling
+   * anything consequential should ask for it; see
+   * packages/core/src/attestation.ts for why the weaker levels do not carry
+   * that claim.
+   */
+  readonly requireBinding?: BindingLevel;
   readonly timeoutMs?: number;
   readonly retries?: { readonly max: number; readonly backoffMs: number };
 }

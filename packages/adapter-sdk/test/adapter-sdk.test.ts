@@ -64,6 +64,53 @@ describe('handleInvoke', () => {
     expect(body(result)['attestation']).toBe(raw);
   });
 
+  it('passes a well-formed attestation binding through', async () => {
+    const binding = {
+      chatID: 'chat-1',
+      model: 'qwen/qwen2.5-omni-7b',
+      text: 'Summary: ok.',
+      signature: `0x${'ab'.repeat(65)}`,
+      outputPath: '$.text',
+    };
+    const attesting: AgentDefinition = {
+      ...echo,
+      invoke: () => ({ output: { text: 'Summary: ok.' }, attestation: 'quote', attestationBinding: binding }),
+    };
+
+    const result = await handleInvoke(attesting, request({ text: 'x' }));
+    expect(body(result)['attestationBinding']).toEqual(binding);
+  });
+
+  it('reports an explicit null binding, so absent and lost are distinguishable', async () => {
+    const result = await handleInvoke(echo, request({ text: 'x' }));
+    expect(body(result)).toHaveProperty('attestationBinding', null);
+  });
+
+  it('rejects a half-filled binding rather than anchoring an uncheckable one', async () => {
+    // A binding missing a field would still be digested into attestationRef,
+    // and the step would look attested while proving nothing.
+    for (const missing of ['chatID', 'model', 'text', 'signature', 'outputPath']) {
+      const binding: Record<string, string> = {
+        chatID: 'c',
+        model: 'm',
+        text: 't',
+        signature: '0xab',
+        outputPath: '$',
+      };
+      delete binding[missing];
+
+      const broken: AgentDefinition = {
+        ...echo,
+        invoke: () =>
+          ({ output: { text: 't' }, attestation: 'q', attestationBinding: binding }) as never,
+      };
+
+      const result = await handleInvoke(broken, request({ text: 'x' }));
+      expect(result.status, missing).toBe(500);
+      expect(errorOf(result).code).toBe('bad-binding');
+    }
+  });
+
   it('rejects a request with no input object rather than inventing one', async () => {
     for (const bad of [null, undefined, 42, 'string', [], {}, { input: null }, { input: [] }]) {
       const result = await handleInvoke(echo, bad);

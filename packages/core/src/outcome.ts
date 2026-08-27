@@ -17,6 +17,7 @@
  * fix is in the calling code, never in the test.
  */
 
+import { meetsBinding, type BindingLevel } from './attestation.js';
 import { foldChainRoot } from './chain-root.js';
 import type { Hex } from './hash.js';
 import { hashReceipt, StepStatus, type Receipt } from './receipt.js';
@@ -84,6 +85,21 @@ export type RunOutcome =
 export interface StatusDecision {
   readonly requireAttestation: boolean;
   readonly attestationPresent: boolean;
+  /**
+   * How much the attestation actually establishes. Omitted means the caller
+   * did not evaluate binding, which is treated as `present` when an
+   * attestation exists — the weakest honest reading.
+   */
+  readonly bindingLevel?: BindingLevel;
+  /**
+   * The binding a step demands. Defaults to `present`, preserving the original
+   * behaviour: an attestation only has to exist.
+   *
+   * A flow that sets `bound` is asking for the one level that means the
+   * attested key signed *this output*. See attestation.ts for why the weaker
+   * levels do not carry that claim.
+   */
+  readonly requireBinding?: BindingLevel;
   /** Set when the invocation terminally failed. */
   readonly error?: string;
   /** Set when policy prevented the step from running at all. */
@@ -94,11 +110,24 @@ export interface StatusDecision {
  * The single place a step's status is decided. Ordering matters: a step that
  * did not run cannot have failed, a step that failed cannot be judged on its
  * attestation, and a step missing a required attestation is never Ok.
+ *
+ * The binding rule is the attestation rule generalised. §1.3 says a step that
+ * required an attestation and did not get one is Unattested, never Ok — and an
+ * attestation that does not bind the output is, for a flow that asked for
+ * binding, exactly that: not the attestation it required.
  */
 export function decideStepStatus(decision: StatusDecision): StepStatus {
   if (decision.skipped !== undefined) return StepStatus.Skipped;
   if (decision.error !== undefined) return StepStatus.Failed;
-  if (decision.requireAttestation && !decision.attestationPresent) return StepStatus.Unattested;
+  if (decision.requireAttestation) {
+    if (!decision.attestationPresent) return StepStatus.Unattested;
+
+    const required = decision.requireBinding ?? 'present';
+    // Absent an evaluation, an existing attestation establishes no more than
+    // its own existence. Assuming better would be the promotion §1.3 forbids.
+    const achieved = decision.bindingLevel ?? 'present';
+    if (!meetsBinding(achieved, required)) return StepStatus.Unattested;
+  }
   return StepStatus.Ok;
 }
 

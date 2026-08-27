@@ -3,8 +3,10 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import {
   StepStatus,
+  attestationRefFor,
   hashJson,
   foldChainRoot,
+  legacyAttestationRef,
   sha256,
   verifyLinkage,
   ZERO_BYTES32,
@@ -230,12 +232,33 @@ describe('a four-step run with a parallel branch', () => {
 });
 
 describe('attestation handling (§1.3)', () => {
-  test('records attestationRef as sha256 of the raw attestation bytes', async () => {
+  test('records attestationRef over the attestation bundle, not the quote alone', async () => {
     const { chain, result } = run(DIAMOND, ENDPOINTS());
     await result;
     const summarize = chain.anchored.find((r) => r.stepIndex === 1)!;
-    const expected = sha256(new Uint8Array(Buffer.from('attest:summarize')));
-    expect(summarize.attestationRef).toBe(expected);
+
+    // The quote is the attestation string exactly as the agent sent it —
+    // never a decoded or re-encoded form.
+    const quote = Buffer.from('attest:summarize').toString('base64');
+
+    // The digest now covers the quote together with the per-response
+    // signature, so that attestationRef commits to something about this
+    // output rather than only to the document's integrity.
+    expect(summarize.attestationRef).toBe(attestationRefFor({ quote, response: null }));
+  });
+
+  test('the bundle digest is distinct from the pre-binding quote-only digest', async () => {
+    const { chain, result } = run(DIAMOND, ENDPOINTS());
+    await result;
+    const summarize = chain.anchored.find((r) => r.stepIndex === 1)!;
+    const quote = Buffer.from('attest:summarize').toString('base64');
+
+    // Domain separation: a receipt anchored before binding existed cannot be
+    // replayed as though it carried one.
+    expect(summarize.attestationRef).not.toBe(legacyAttestationRef(quote));
+    expect(legacyAttestationRef(quote)).toBe(
+      sha256(new Uint8Array(Buffer.from('attest:summarize'))),
+    );
   });
 
   test('leaves attestationRef zero when no attestation was returned', async () => {

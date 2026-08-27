@@ -55,6 +55,37 @@ export {
 } from './trace.js';
 
 export {
+  recoverAddress,
+  recoverMessageAddress,
+  recoverPublicKey,
+  publicKeyToAddress,
+  hashPersonalMessage,
+  parseSignature,
+  toChecksumAddress,
+  addressesEqual,
+  Secp256k1Error,
+  type Signature,
+} from './secp256k1.js';
+
+export {
+  verifyAttestation,
+  attestationRefFor,
+  legacyAttestationRef,
+  parseQuoteEnvelope,
+  signerFromReportData,
+  resolveOutputPath,
+  meetsBinding,
+  describeBinding,
+  AttestationError,
+  type BindingLevel,
+  type AttestationBundle,
+  type AttestationVerification,
+  type ResponseSignature,
+  type QuoteEnvelope,
+  type VerifyAttestationInput,
+} from './attestation.js';
+
+export {
   decideStepStatus,
   statusSucceeded,
   reportStepOutcome,

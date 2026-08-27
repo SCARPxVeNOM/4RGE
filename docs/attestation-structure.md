@@ -1,6 +1,8 @@
 # TEE attestation structure on 0G Compute
 
-**Status:** Phase 1 open item — resolved by observation.
+**Status:** Phase 1 open item — resolved by observation. The binding gap this
+uncovered is now closed in code; see "The gap this uncovered" below. One piece
+remains open: Intel certificate chain verification.
 **Captured:** 2026-08-19, 0G Galileo Testnet (chain 16602), two independent providers.
 **Raw artifacts:** `artifacts/attestation/*.raw.json`
 **Reproduce:** `pnpm --filter @0gflow/attestation-probe probe`
@@ -112,7 +114,7 @@ attestationRef = sha256(raw response bytes)
 
 This matches §6.3 and §13's "store the raw blob and record only its digest".
 
-### The gap this uncovered
+### The gap this uncovered — **now closed**
 
 A digest of the blob proves the blob was not modified after the fact. **It does
 not prove the blob has anything to do with this step's output.** An operator
@@ -123,31 +125,100 @@ attestationRef against the raw attestation in the trace") would catch it.
 Closing that requires binding the output to the attested key, in four steps:
 
 1. Verify the TDX quote signature against Intel's certificate chain.
-   *(Establishes the enclave is genuine.)*
+   *(Establishes the enclave is genuine.)* — **not implemented**, see below.
 2. Extract the address from `report_data`.
-   *(Establishes which key the enclave controls.)*
+   *(Establishes which key the enclave controls.)* — implemented,
+   `signerFromReportData`.
 3. Check that address against the on-chain acknowledged TEE signer for the
-   provider. *(Establishes it is the expected enclave.)*
+   provider. *(Establishes it is the expected enclave.)* — implemented as an
+   optional input, `verifyAttestation({ acknowledgedSigner })`.
 4. **Fetch the per-response signature and verify it over the actual output.**
-   `GET {url}/v1/proxy/signature/{chatID}?model={model}` returns
-   `{ text, signature }`; the SDK verifies it with
-   `Verifier.verifySignature(message, signature, expectedAddress)`.
-   *(Establishes this output came from that enclave.)*
+   *(Establishes this output came from that enclave.)* — implemented, and it
+   is the step everything turns on.
 
 **Only step 4 makes the attestation load-bearing for a receipt.** Steps 1–3
 alone attest that some enclave exists somewhere.
 
-### Recommended change to the receipt semantics
+### What the 0G SDK does, and why it is not enough
 
-The executor should capture the per-response signature and `chatID` alongside
-the raw quote, storing both in the trace, and `attestationRef` should digest
-that combined envelope rather than the quote alone. Otherwise `attestationRef`
-certifies provenance of a document rather than provenance of an output, and
-§1.2's claim — "prove which model produced an output" — is not met.
+The SDK's own check is:
 
-This is a spec change to §6.3 and to the §9 verification procedure, and it
-should land before the executor's attestation path is written, for the same
-reason §10.3 was written early.
+```js
+// inference/broker/response.js
+const ResponseSignature = await Verifier.fetchSignatureByChatID(svc.url, chatID, svc.model);
+return Verifier.verifySignature(ResponseSignature.text, ResponseSignature.signature, signingAddress);
+```
+
+It verifies the signature over `ResponseSignature.text` — **the text returned
+by the same endpoint that returned the signature.** It never compares that text
+against the completion the client actually received.
+
+So the SDK establishes *"the enclave signed something"*, not *"the enclave
+signed what I got"*. A provider can serve one completion over `/v1/chat/...`
+and a correctly-signed different `text` from `/v1/proxy/signature/{chatID}`,
+and the SDK's verification passes.
+
+0G Flow therefore performs the comparison the SDK omits. That comparison is the
+entire difference between the `attested` and `bound` levels below, and it is
+the reason `verifyAttestation` takes the step's output as an argument.
+
+### The four binding levels
+
+Implemented in `packages/core/src/attestation.ts`. Ordered weakest first; only
+the last makes an attestation load-bearing.
+
+| Level | Means | How it is reached |
+|---|---|---|
+| `absent` | nothing was returned | no attestation |
+| `present` | a document exists and is unmodified | digest matches, nothing else established |
+| `attested` | a key named in the quote signed some text | `report_data` parses, signature recovers to that key |
+| `bound` | **that key signed this step's output** | additionally the signed text equals the output at `outputPath` |
+
+`decideStepStatus` takes `requireBinding`, defaulting to `present` — which is
+what `requireAttestation` alone has always meant. A step declaring
+`requireBinding: 'bound'` and reaching only `attested` is anchored **status 3
+(unattested), never 0**, by the same §1.3 rule that already governed a missing
+attestation. It is not the attestation the step required.
+
+### The change to receipt semantics
+
+`attestationRef` now digests the quote **together with** the per-response
+signature:
+
+```
+attestationRef = sha256(
+  "0gflow-attestation-v1\n" ‖ len‖quote ‖ len‖chatID ‖ len‖model
+                            ‖ len‖text  ‖ len‖signature ‖ len‖outputPath
+)
+```
+
+- Length-prefixed rather than canonical JSON. The quote is served as
+  `text/plain` and carries JSON-encoded strings inside JSON fields;
+  canonicalising it would NFC-normalise and re-escape bytes, changing the
+  digest without changing the meaning.
+- Domain-separated, so a receipt anchored under the old quote-only scheme can
+  never be replayed as though it carried a binding.
+
+`outputPath` is recorded, not assumed. The executor knows how it built the
+output from the completion; a verifier working from the trace alone does not.
+Without it, `bound` would rest on a convention nobody wrote down.
+
+**Old receipts still verify.** `legacyAttestationRef` reproduces the previous
+digest exactly — sha256 over the base64-*decoded* attestation, matching what
+was actually anchored — and such receipts are reported as `present`, never
+promoted.
+
+### What is still not proven
+
+The TDX quote's own signature is **not** checked against Intel's PCS roots, so:
+
+> `bound` means *the key named in this quote signed this output*.
+> It does not mean *Intel vouches for the enclave holding that key*.
+
+`quoteSignatureVerified` is reported as `false` rather than omitted, and no
+code path prints an unqualified TEE tick. The verifier previously printed
+`attestation: TEE ✓` on a mere digest match; it now prints the level, and even
+`bound` reads `bound to output (Intel chain unchecked)`.
 
 ---
 
@@ -170,18 +241,47 @@ success status can be produced (`packages/core/src/outcome.ts`).
 
 ---
 
-## Open questions for Phase 2
+## Degradation path in practice
 
-1. **Intel certificate chain verification offline.** The verifier CLI is
-   zero-dependency (§9). Full TDX quote verification needs Intel's PCS roots.
-   Either vendor the root certificates into the verifier or accept that quote
-   *signature* verification is delegated, and say so in the output rather than
-   printing an unqualified `TEE ✓`.
-2. **`chatID` provenance.** Confirm the executor can obtain `chatID` reliably
-   from an inference call, since step 4 depends on it.
+`decideStepStatus` maps the level to a status. Nothing may promote a weaker
+level than the flow asked for:
+
+| Achieved | `requireBinding` unset / `present` | `requireBinding: 'bound'` |
+|---|---|---|
+| `bound` | ok | ok |
+| `attested` | ok | **unattested (3)** |
+| `present` | ok | **unattested (3)** |
+| `absent` | unattested (3) | unattested (3) |
+
+A verifier goes further: a step anchored **ok** whose attestation reaches only
+`attested` is a verification *failure*, not a note. A genuine quote with a
+genuine signature over a different response is the substitution this exists to
+catch, and it must not pass.
+
+---
+
+## Still open
+
+1. **Intel certificate chain verification.** Not implemented. The verifier CLI
+   is zero-dependency (§9) and full TDX quote verification needs Intel's PCS
+   roots. Vendoring them is the remaining work; until then the output says the
+   chain was not checked rather than implying it was. This is the one
+   outstanding piece of the four-step plan.
+2. **`chatID` provenance.** The binding requires it. An agent fronting 0G
+   Compute must return it in `attestationBinding`; the adapter SDKs expose the
+   field and reject a partially-filled binding, but no reference agent yet
+   produces a real one, because that needs a live inference call against a
+   provider that serves both endpoints.
 3. **Provider availability.** 2 of 6 responded. Decide whether
    `requireAttestation: true` should fail the step or retry across providers.
 4. **Quote freshness.** `/v1/quote` appears to serve a per-enclave quote, not a
    per-request one. If it is cached, `report_data` binds the key but not the
-   moment — which is fine, because freshness comes from step 4's per-response
+   moment — which is fine, because freshness now comes from the per-response
    signature, not from the quote.
+5. **Replay within a run.** A signature over a given text remains valid
+   forever, so an agent could return the same signed completion for two
+   identical inputs. That is correct behaviour — identical inputs *should*
+   produce identical outputs, per the determinism the conformance suite
+   requires — but a flow needing per-invocation freshness would have to carry
+   `runId`/`stepIndex` into the signed text, which 0G Compute does not
+   currently do.

@@ -17,7 +17,7 @@
 
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
-import { canonicalize, type JsonValue } from '@0gflow/core';
+import { canonicalize, type Hex, type JsonValue, type ResponseSignature } from '@0gflow/core';
 
 export interface InvokeRequest {
   readonly runId: string;
@@ -40,6 +40,14 @@ export interface InvokeResult {
   readonly output: JsonValue;
   /** Raw attestation exactly as returned, or null. Never re-encoded. */
   readonly attestation: string | null;
+  /**
+   * The per-response signature, when the agent produced one.
+   *
+   * Without it the attestation is a document about an enclave, not a statement
+   * about this output — see packages/core/src/attestation.ts. Agents fronting
+   * 0G Compute obtain it from /v1/proxy/signature/{chatID}.
+   */
+  readonly attestationBinding: ResponseSignature | null;
   readonly meta: JsonValue | null;
   readonly attempts: AttemptRecord[];
 }
@@ -156,9 +164,42 @@ function parseSuccess(body: string, attempts: AttemptRecord[]): InvokeResult {
   return {
     output,
     attestation: typeof attestation === 'string' && attestation.length > 0 ? attestation : null,
+    attestationBinding: parseBinding(envelope['attestationBinding']),
     meta: (envelope['meta'] ?? null) as JsonValue | null,
     attempts,
   };
+}
+
+/**
+ * Reads the optional per-response signature.
+ *
+ * A partial binding is dropped rather than half-accepted: every field is
+ * needed to check it, and carrying an incomplete one into the receipt would
+ * anchor a digest over fields a verifier cannot use.
+ */
+function parseBinding(value: unknown): ResponseSignature | null {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+  const binding = value as Record<string, unknown>;
+
+  const chatID = binding['chatID'];
+  const model = binding['model'];
+  const text = binding['text'];
+  const signature = binding['signature'];
+  // Defaults to the whole output, which is the only assumption that cannot
+  // silently point at the wrong field.
+  const outputPath = binding['outputPath'] ?? '$';
+
+  if (
+    typeof chatID !== 'string' ||
+    typeof model !== 'string' ||
+    typeof text !== 'string' ||
+    typeof signature !== 'string' ||
+    typeof outputPath !== 'string' ||
+    signature.length === 0
+  ) {
+    return null;
+  }
+  return { chatID, model, text, signature: signature as Hex, outputPath };
 }
 
 function parseError(status: number, body: string): { code: string; message: string; retryable: boolean } {

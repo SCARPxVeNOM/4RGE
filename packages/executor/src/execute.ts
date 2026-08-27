@@ -23,18 +23,22 @@
  */
 
 import {
+  attestationRefFor,
   decideStepStatus,
   foldChainRoot,
   hashJson,
   resolveTemplates,
-  sha256,
   statusSucceeded,
   StepStatus,
+  verifyAttestation,
   ZERO_BYTES32,
+  type AttestationBundle,
+  type AttestationVerification,
   type ExecutionTrace,
   type Hex,
   type JsonValue,
   type Receipt,
+  type ResponseSignature,
 } from '@0gflow/core';
 import { AdapterError, invokeHttpAdapter, type AttemptRecord } from './adapter.js';
 import { planFlow, type FlowSpec, type PlannedStep } from './plan.js';
@@ -250,6 +254,7 @@ async function runStep(args: RunStepArgs): Promise<StepOutcomeInternal> {
   const timeoutMs = step.timeoutMs ?? defaultTimeoutMs;
   let output: JsonValue;
   let attestation: string | null;
+  let attestationBinding: ResponseSignature | null;
   let attempts: AttemptRecord[];
   try {
     const invocation = await invokeHttpAdapter(
@@ -268,6 +273,7 @@ async function runStep(args: RunStepArgs): Promise<StepOutcomeInternal> {
     );
     output = invocation.output;
     attestation = invocation.attestation;
+    attestationBinding = invocation.attestationBinding;
     attempts = invocation.attempts;
   } catch (error) {
     const adapterError = error instanceof AdapterError ? error : null;
@@ -286,18 +292,29 @@ async function runStep(args: RunStepArgs): Promise<StepOutcomeInternal> {
 
   const outputHash = hashJson(output);
 
-  // 5. Attestation digest is over the raw bytes exactly as returned. Never
-  //    re-encode: the verifier hashes what the provider actually sent.
-  const attestationRef =
-    attestation === null ? ZERO_BYTES32 : sha256(new Uint8Array(Buffer.from(attestation, 'base64')));
+  // 5. Attestation. The digest covers the quote *and* the per-response
+  //    signature, because a digest of the quote alone proves the document was
+  //    not modified and says nothing about whether it describes this output.
+  //    The bundle fields go in verbatim; see attestationRefFor for why the
+  //    preimage is length-prefixed rather than canonical JSON.
+  const bundle: AttestationBundle | null =
+    attestation === null ? null : { quote: attestation, response: attestationBinding };
+
+  const attestationRef = bundle === null ? ZERO_BYTES32 : attestationRefFor(bundle);
+
+  // What the attestation actually establishes, decided here so the trace and
+  // the status agree and a verifier re-derives the same answer offline.
+  const binding = verifyAttestation({ bundle, output });
 
   const endedAtMs = now();
-  const trace = buildTrace(step, runId, resolvedInput, output, attestation, attempts, null, startedAtMs, endedAtMs);
+  const trace = buildTrace(step, runId, resolvedInput, output, bundle, binding, attempts, null, startedAtMs, endedAtMs);
   const { traceRoot } = await traces.put(trace as unknown as JsonValue);
 
   const status = decideStepStatus({
     requireAttestation: step.requireAttestation === true,
     attestationPresent: attestation !== null,
+    bindingLevel: binding.level,
+    ...(step.requireBinding === undefined ? {} : { requireBinding: step.requireBinding }),
   });
 
   const receipt: Receipt = {
@@ -340,7 +357,8 @@ function buildTrace(
   runId: Hex,
   input: JsonValue,
   output: JsonValue,
-  attestation: string | null,
+  bundle: AttestationBundle | null,
+  binding: AttestationVerification | null,
   attempts: readonly AttemptRecord[],
   error: string | null,
   startedAtMs: number,
@@ -356,7 +374,23 @@ function buildTrace(
     output,
     timings: { startedAt: startedAtMs, endedAt: endedAtMs, durationMs: endedAtMs - startedAtMs },
     retries: attempts.map((a) => ({ attempt: a.attempt, error: a.error ?? '', delayMs: a.durationMs })),
-    attestation,
+    // Kept for readers of older traces. attestationBundle is the field a
+    // verifier re-derives attestationRef from.
+    attestation: bundle?.quote ?? null,
+    attestationBundle: bundle,
+    // Recorded as the executor's finding, not as evidence. A verifier
+    // recomputes the level itself and does not read this to decide anything —
+    // trusting it would let the executor grade its own homework.
+    attestationBinding:
+      binding === null
+        ? null
+        : {
+            level: binding.level,
+            signerAddress: binding.signerAddress,
+            recoveredAddress: binding.recoveredAddress,
+            quoteSignatureVerified: binding.quoteSignatureVerified,
+            notes: binding.notes,
+          },
     error,
   };
 }
@@ -375,7 +409,7 @@ async function buildFailed(
   const endedAtMs = now();
   // The failure gets a trace too: §1.3 requires a failed step to be recorded
   // with its error, not merely absent.
-  const trace = buildTrace(step, runId, input ?? {}, {}, null, attempts, error, startedAtMs, endedAtMs);
+  const trace = buildTrace(step, runId, input ?? {}, {}, null, null, attempts, error, startedAtMs, endedAtMs);
   const { traceRoot } = await traces.put(trace as unknown as JsonValue);
 
   const status = decideStepStatus({ requireAttestation: false, attestationPresent: false, error });
@@ -423,7 +457,7 @@ async function buildSkipped(
   now: () => number,
 ): Promise<StepOutcomeInternal> {
   const endedAtMs = now();
-  const trace = buildTrace(step, runId, {}, {}, null, [], reason, startedAtMs, endedAtMs);
+  const trace = buildTrace(step, runId, {}, {}, null, null, [], reason, startedAtMs, endedAtMs);
   const { traceRoot } = await traces.put(trace as unknown as JsonValue);
 
   const status = decideStepStatus({

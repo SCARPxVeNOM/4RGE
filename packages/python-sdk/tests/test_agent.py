@@ -20,6 +20,7 @@ from zgflow import (
     AgentDefinition,
     AgentError,
     AgentResponse,
+    AttestationBinding,
     InvokeRequest,
     SchemaError,
     handle_invoke,
@@ -103,6 +104,78 @@ class TestInvocation:
         assert seen[0].run_id == "0x" + "11" * 32
         assert seen[0].step_index == 0
         assert seen[0].deadline == 1_800_000_000
+
+
+class TestAttestationBinding:
+    """Wire names must match the TypeScript SDK exactly.
+
+    An executor cannot tell which language an agent was written in, so a
+    different spelling here would silently produce an unbound step.
+    """
+
+    BINDING = AttestationBinding(
+        chat_id="chat-1",
+        model="qwen/qwen2.5-omni-7b",
+        text="Summary: ok.",
+        signature="0x" + "ab" * 65,
+        output_path="$.text",
+    )
+
+    def test_serialises_with_the_camelcase_wire_names(self) -> None:
+        result = call(
+            agent_with(
+                lambda _r: AgentResponse(
+                    output={"text": "Summary: ok."},
+                    attestation="quote",
+                    attestation_binding=self.BINDING,
+                )
+            ),
+            envelope({"text": "x"}),
+        )
+        assert result.body["attestationBinding"] == {
+            "chatID": "chat-1",
+            "model": "qwen/qwen2.5-omni-7b",
+            "text": "Summary: ok.",
+            "signature": "0x" + "ab" * 65,
+            "outputPath": "$.text",
+        }
+
+    def test_reports_an_explicit_null_when_absent(self) -> None:
+        result = call(AGENT, envelope({"text": "x"}))
+        assert "attestationBinding" in result.body
+        assert result.body["attestationBinding"] is None
+
+    def test_defaults_output_path_to_the_whole_output(self) -> None:
+        binding = AttestationBinding(chat_id="c", model="m", text="t", signature="0xab")
+        assert binding.output_path == "$"
+
+    @pytest.mark.parametrize(
+        "field", ["chat_id", "model", "text", "signature", "output_path"]
+    )
+    def test_rejects_a_half_filled_binding(self, field: str) -> None:
+        # A binding missing a field would still be digested into
+        # attestationRef, and the step would look attested while proving
+        # nothing.
+        values = {
+            "chat_id": "c",
+            "model": "m",
+            "text": "t",
+            "signature": "0xab",
+            "output_path": "$",
+        }
+        values[field] = ""
+        broken = AttestationBinding(**values)
+
+        result = call(
+            agent_with(
+                lambda _r: AgentResponse(
+                    output={"text": "t"}, attestation="q", attestation_binding=broken
+                )
+            ),
+            envelope({"text": "x"}),
+        )
+        assert result.status == 500
+        assert result.body["error"]["code"] == "bad-binding"
 
 
 class TestMalformedRequests:

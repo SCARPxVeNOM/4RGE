@@ -23,15 +23,20 @@
  */
 
 import {
+  attestationRefFor,
+  describeBinding,
   foldChainRoot,
   hashJson,
   hashReceipt,
+  legacyAttestationRef,
   parseTrace,
-  sha256,
   statusSucceeded,
+  verifyAttestation,
   verifyLinkage,
   StepStatus,
   ZERO_BYTES32,
+  type AttestationVerification,
+  type ExecutionTrace,
   type Hex,
   type JsonValue,
   type LinkageReport,
@@ -45,10 +50,107 @@ export type Verdict = 'verified' | 'failed' | 'incomplete';
 
 export type AttestationState =
   | 'not-required'
+  /** The digest matches. Says nothing yet about what the attestation means. */
   | 'verified'
   | 'mismatched'
   | 'missing-trace'
   | 'absent-but-referenced';
+
+/**
+ * Recomputes what an attestation establishes, from the trace and the receipt.
+ *
+ * The trace also carries the executor's own `attestationBinding` finding. It
+ * is deliberately not read: the executor is the party being verified, and
+ * taking its word for the binding would be letting it grade its own homework.
+ * Everything below is re-derived.
+ */
+function checkAttestation(
+  receipt: AnchoredReceipt,
+  trace: ExecutionTrace,
+): {
+  state: AttestationState;
+  binding: AttestationVerification | null;
+  notes: string[];
+  failures: string[];
+} {
+  const notes: string[] = [];
+  const failures: string[] = [];
+
+  const bundle = trace.attestationBundle ?? null;
+  const legacyRaw = typeof trace.attestation === 'string' ? trace.attestation : null;
+
+  if (bundle === null && (legacyRaw === null || legacyRaw.length === 0)) {
+    return {
+      state: 'absent-but-referenced',
+      binding: null,
+      notes,
+      failures: [
+        `the receipt anchors attestationRef ${receipt.attestationRef} but the trace carries no attestation`,
+      ],
+    };
+  }
+
+  // Which digest scheme the receipt used is decided by which one reproduces
+  // it — not by which fields happen to be present, since a trace can carry
+  // both and only one can be what was anchored.
+  let state: AttestationState;
+  let boundScheme: 'bundle' | 'legacy' | null = null;
+
+  if (bundle !== null && attestationRefFor(bundle) === receipt.attestationRef) {
+    boundScheme = 'bundle';
+    state = 'verified';
+  } else if (legacyRaw !== null && legacyAttestationRef(legacyRaw) === receipt.attestationRef) {
+    boundScheme = 'legacy';
+    state = 'verified';
+  } else {
+    const computed =
+      bundle !== null ? attestationRefFor(bundle) : legacyAttestationRef(legacyRaw ?? '');
+    return {
+      state: 'mismatched',
+      binding: null,
+      notes,
+      failures: [
+        `the stored attestation hashes to ${computed} but the receipt anchors attestationRef ${receipt.attestationRef}`,
+      ],
+    };
+  }
+
+  if (boundScheme === 'legacy') {
+    // Pre-binding receipt. The digest is over the quote alone, so nothing
+    // ties it to this output and no amount of checking can raise that.
+    notes.push(
+      'attestationRef digests the quote alone (pre-binding format): the attestation is unmodified but is not tied to this output',
+    );
+    return {
+      state,
+      binding: {
+        level: 'present',
+        signerAddress: null,
+        recoveredAddress: null,
+        quoteSignatureVerified: false,
+        notes: ['legacy quote-only attestationRef'],
+      },
+      notes,
+      failures,
+    };
+  }
+
+  const binding = verifyAttestation({ bundle, output: trace.output });
+  notes.push(describeBinding(binding));
+  for (const note of binding.notes) notes.push(note);
+
+  // A step anchored ok whose attestation does not cover its output is the
+  // exact substitution the binding exists to catch: a genuine quote, a
+  // genuine signature, and the wrong response. It is a verification failure,
+  // not a note.
+  if (statusSucceeded(receipt.status) && binding.level === 'attested') {
+    failures.push(
+      'the attestation is signed by the attested enclave key but does not cover this step output, so it belongs to a different response',
+    );
+  }
+
+  return { state, binding, notes, failures };
+}
 
 export interface StepCheck {
   readonly stepIndex: number;
@@ -65,6 +167,11 @@ export interface StepCheck {
   /** null when the trace could not be fetched. */
   readonly hashesMatch: boolean | null;
   readonly attestation: AttestationState;
+  /**
+   * What the attestation actually establishes, recomputed here rather than
+   * read from the trace. null when there was no attestation to evaluate.
+   */
+  readonly binding: AttestationVerification | null;
   readonly notes: string[];
 }
 
@@ -194,6 +301,7 @@ export async function verifyRun(options: VerifyOptions): Promise<VerificationRep
     const fetched = await traces.fetch(receipt.traceRoot);
     let hashesMatch: boolean | null = null;
     let attestation: AttestationState = 'not-required';
+    let binding: AttestationVerification | null = null;
 
     if (fetched === null) {
       allTracesFromStorage = false;
@@ -248,24 +356,12 @@ export async function verifyRun(options: VerifyOptions): Promise<VerificationRep
           if (receipt.status === StepStatus.Unattested) {
             notes.push('required an attestation and did not get one');
           }
-        } else if (typeof trace.attestation !== 'string' || trace.attestation.length === 0) {
-          attestation = 'absent-but-referenced';
-          failures.push(
-            `step ${receipt.stepIndex}: the receipt anchors attestationRef ${receipt.attestationRef} but the trace carries no attestation`,
-          );
         } else {
-          // The digest is over the raw bytes exactly as the provider sent
-          // them, never over a re-serialised form.
-          const raw = Buffer.from(trace.attestation, 'base64');
-          const digest = sha256(new Uint8Array(raw));
-          if (digest === receipt.attestationRef) {
-            attestation = 'verified';
-          } else {
-            attestation = 'mismatched';
-            failures.push(
-              `step ${receipt.stepIndex}: the stored attestation hashes to ${digest} but the receipt anchors attestationRef ${receipt.attestationRef}`,
-            );
-          }
+          const checked = checkAttestation(receipt, trace);
+          attestation = checked.state;
+          binding = checked.binding;
+          notes.push(...checked.notes);
+          failures.push(...checked.failures.map((f) => `step ${receipt.stepIndex}: ${f}`));
         }
       } catch (error) {
         hashesMatch = false;
@@ -286,6 +382,7 @@ export async function verifyRun(options: VerifyOptions): Promise<VerificationRep
       inclusionProofVerified: fetched?.inclusionProofVerified ?? false,
       hashesMatch,
       attestation,
+      binding,
       notes,
     });
   }

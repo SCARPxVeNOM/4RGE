@@ -30,6 +30,7 @@ from .canonical import CanonicalizationError, canonicalize
 
 __all__ = [
     "AgentError",
+    "AttestationBinding",
     "SchemaError",
     "InvokeRequest",
     "AgentResponse",
@@ -89,12 +90,44 @@ class InvokeRequest:
 
 
 @dataclass(frozen=True)
+class AttestationBinding:
+    """The per-response signature tying an attestation to *this* output.
+
+    An attestation without one proves an enclave exists somewhere; it says
+    nothing about the answer being returned. An agent fronting 0G Compute gets
+    this from ``GET {url}/v1/proxy/signature/{chatID}?model={model}``.
+
+    Do not copy the 0G SDK's own check. ``Verifier.verifySignature`` compares
+    the signature against the ``text`` that same endpoint returned, never
+    against the completion the caller received -- so it passes even when a
+    provider serves one response and signs another. The executor performs the
+    comparison the SDK omits, using ``output_path``.
+    """
+
+    chat_id: str
+    model: str
+    #: The text the enclave signed, verbatim.
+    text: str
+    #: The 65-byte signature, 0x hex, exactly as returned.
+    signature: str
+    #: Which part of ``output`` the signed text is: "$" for the whole output,
+    #: or a path such as "$.text". State it rather than leaving it to
+    #: convention -- if it does not resolve to the signed text, the executor
+    #: records the step unattested, which is correct for an attestation that
+    #: does not describe the answer.
+    output_path: str = "$"
+
+
+@dataclass(frozen=True)
 class AgentResponse:
     output: Any
     #: The raw attestation exactly as produced, or None. Never re-encode it:
     #: the executor hashes these bytes into attestationRef, and a verifier
     #: compares against what the provider actually sent.
     attestation: str | None = None
+    #: The signature binding ``attestation`` to ``output``. Without it the
+    #: strongest level a step can reach is "present".
+    attestation_binding: AttestationBinding | None = None
 
 
 class _Invoker(Protocol):
@@ -172,7 +205,40 @@ async def handle_invoke(agent: AgentDefinition, body: Any) -> HandlerResult:
                 "attestation must be a string or None", "bad-attestation", False, 500
             )
 
-        return HandlerResult(200, {"output": result.output, "attestation": result.attestation})
+        binding = result.attestation_binding
+        if binding is not None:
+            # A half-filled binding is worse than none: the executor would
+            # digest fields a verifier cannot check, and the step would look
+            # attested while proving nothing.
+            for field_name in ("chat_id", "model", "text", "signature", "output_path"):
+                value = getattr(binding, field_name, None)
+                if not isinstance(value, str) or value == "":
+                    raise AgentError(
+                        f"attestation_binding.{field_name} must be a non-empty string",
+                        "bad-binding",
+                        False,
+                        500,
+                    )
+
+        return HandlerResult(
+            200,
+            {
+                "output": result.output,
+                "attestation": result.attestation,
+                # Wire names match the TypeScript SDK: an executor cannot tell
+                # which language an agent was written in, and a different
+                # spelling here would silently produce an unbound step.
+                "attestationBinding": None
+                if binding is None
+                else {
+                    "chatID": binding.chat_id,
+                    "model": binding.model,
+                    "text": binding.text,
+                    "signature": binding.signature,
+                    "outputPath": binding.output_path,
+                },
+            },
+        )
 
     except AgentError as error:
         return HandlerResult(error.status, error.envelope())

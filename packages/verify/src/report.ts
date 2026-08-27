@@ -16,6 +16,18 @@ const DASH = '—';
 const short = (hex: string, keep = 6): string =>
   hex.length <= keep + 4 ? hex : `${hex.slice(0, keep + 2)}…`;
 
+/**
+ * What the attestation line says.
+ *
+ * This used to print "TEE ✓" whenever the digest matched, which claimed
+ * hardware attestation on the strength of a blob hashing correctly. The label
+ * now reports the binding level, because those are very different statements:
+ * a matching digest means the document was not altered, and only `bound` means
+ * the attested key signed this output.
+ *
+ * Nothing here prints an unqualified tick. Even `bound` is qualified, since
+ * the quote's own signature is not checked against Intel's roots.
+ */
 function attestationLabel(step: StepCheck): string {
   switch (step.attestation) {
     case 'not-required':
@@ -23,7 +35,15 @@ function attestationLabel(step: StepCheck): string {
         ? `attestation: ${CROSS} required but absent`
         : 'attestation: not required';
     case 'verified':
-      return `attestation: TEE ${TICK}`;
+      switch (step.binding?.level) {
+        case 'bound':
+          return `attestation: ${TICK} bound to output (Intel chain unchecked)`;
+        case 'attested':
+          return `attestation: ${CROSS} signed, but not over this output`;
+        default:
+          // Digest matches; nothing establishes what the document means.
+          return 'attestation: ? present, unbound';
+      }
     case 'mismatched':
       return `attestation: ${CROSS} digest mismatch`;
     case 'absent-but-referenced':

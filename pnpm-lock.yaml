@@ -60,7 +60,11 @@ importers:
         specifier: workspace:*
         version: link:../core
 
-  packages/core: {}
+  packages/core:
+    devDependencies:
+      viem:
+        specifier: ^2.21.55
+        version: 2.55.19(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)
 
   packages/executor:
     dependencies:
@@ -126,6 +130,9 @@ importers:
       esbuild:
         specifier: ^0.21.5
         version: 0.21.5
+      viem:
+        specifier: ^2.21.55
+        version: 2.55.19(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)
 
   tools/attestation-probe:
     dependencies:

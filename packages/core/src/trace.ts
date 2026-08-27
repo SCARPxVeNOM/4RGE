@@ -11,6 +11,7 @@
  * and a disagreement about the shape is a disagreement about what was proven.
  */
 
+import type { AttestationBundle, BindingLevel } from './attestation.js';
 import type { JsonValue } from './canonicalize.js';
 
 export interface TraceRetry {
@@ -35,11 +36,34 @@ export interface ExecutionTrace {
   readonly timings?: JsonValue;
   readonly retries?: readonly TraceRetry[];
   /**
-   * The raw TEE attestation exactly as the provider returned it, base64
-   * encoded. attestationRef is sha256 over those raw bytes — never over a
-   * re-serialised form (see docs/attestation-structure.md).
+   * The raw TEE attestation exactly as the provider returned it.
+   *
+   * Retained for traces written before binding existed, where
+   * `attestationRef` is sha256 over these bytes alone. Such a receipt can
+   * establish at most `present`: a digest of a quote proves the document was
+   * not altered, not that it describes this output.
    */
   readonly attestation?: string | null;
+  /**
+   * The quote together with the per-response signature. This is what
+   * `attestationRef` digests on any trace written since binding landed, and
+   * what a verifier re-derives the binding level from.
+   */
+  readonly attestationBundle?: AttestationBundle | null;
+  /**
+   * The executor's own reading of what the attestation established.
+   *
+   * Informational only. A verifier recomputes the level from
+   * `attestationBundle` and `output`; reading this to decide anything would
+   * let the executor grade its own homework.
+   */
+  readonly attestationBinding?: {
+    readonly level: BindingLevel;
+    readonly signerAddress: string | null;
+    readonly recoveredAddress: string | null;
+    readonly quoteSignatureVerified: boolean;
+    readonly notes: readonly string[];
+  } | null;
   readonly error?: string | null;
 }
 

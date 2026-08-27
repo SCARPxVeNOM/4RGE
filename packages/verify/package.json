@@ -18,7 +18,8 @@
   "devDependencies": {
     "@0gflow/core": "workspace:*",
     "@0gflow/config": "workspace:*",
-    "esbuild": "^0.21.5"
+    "esbuild": "^0.21.5",
+    "viem": "^2.21.55"
   },
   "exports": {
     ".": {
