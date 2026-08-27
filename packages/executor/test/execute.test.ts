@@ -244,7 +244,12 @@ describe('attestation handling (§1.3)', () => {
     // The digest now covers the quote together with the per-response
     // signature, so that attestationRef commits to something about this
     // output rather than only to the document's integrity.
-    expect(summarize.attestationRef).toBe(attestationRefFor({ quote, response: null }));
+    // No provider is named by this test agent, so the bundle carries the zero
+    // address: the digest still commits to a value, and a verifier will find
+    // no acknowledged signer for it.
+    expect(summarize.attestationRef).toBe(
+      attestationRefFor({ quote, provider: `0x${'00'.repeat(20)}`, response: null }),
+    );
   });
 
   test('the bundle digest is distinct from the pre-binding quote-only digest', async () => {

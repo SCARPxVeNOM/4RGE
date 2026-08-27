@@ -59,9 +59,9 @@ export interface ExecutionTrace {
    */
   readonly attestationBinding?: {
     readonly level: BindingLevel;
-    readonly signerAddress: string | null;
+    readonly acknowledgedSigner: string | null;
     readonly recoveredAddress: string | null;
-    readonly quoteSignatureVerified: boolean;
+    readonly signerResolved: boolean;
     readonly notes: readonly string[];
   } | null;
   readonly error?: string | null;

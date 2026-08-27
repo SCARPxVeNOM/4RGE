@@ -48,6 +48,13 @@ export interface InvokeResult {
    * 0G Compute obtain it from /v1/proxy/signature/{chatID}.
    */
   readonly attestationBinding: ResponseSignature | null;
+  /**
+   * The 0G provider that served the inference, when the agent fronts 0G
+   * Compute. The executor reads this provider's acknowledged TEE signer from
+   * the InferenceServing contract; without it there is nothing to check the
+   * response signature against.
+   */
+  readonly attestationProvider: Hex | null;
   readonly meta: JsonValue | null;
   readonly attempts: AttemptRecord[];
 }
@@ -165,9 +172,17 @@ function parseSuccess(body: string, attempts: AttemptRecord[]): InvokeResult {
     output,
     attestation: typeof attestation === 'string' && attestation.length > 0 ? attestation : null,
     attestationBinding: parseBinding(envelope['attestationBinding']),
+    attestationProvider: parseProvider(envelope['attestationProvider']),
     meta: (envelope['meta'] ?? null) as JsonValue | null,
     attempts,
   };
+}
+
+/** A 0G provider address, or null. Never a partially-valid one. */
+function parseProvider(value: unknown): Hex | null {
+  return typeof value === 'string' && /^0x[0-9a-fA-F]{40}$/.test(value)
+    ? (value.toLowerCase() as Hex)
+    : null;
 }
 
 /**

@@ -12,7 +12,7 @@
 import { request } from 'node:https';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Hex } from '@0gflow/core';
+import type { AcknowledgedSigner, Hex } from '@0gflow/core';
 import {
   RUN_SEALED_TOPIC,
   STEP_ANCHORED_TOPIC,
@@ -24,6 +24,17 @@ export interface ChainSource {
   getRunSealedLogs(runId: Hex): Promise<RawLog[]>;
   /** ERC-721 ownerOf; null when the token does not exist. */
   ownerOf(registry: Hex, agentId: bigint): Promise<Hex | null>;
+  /**
+   * The TEE signer 0G's InferenceServing contract acknowledges for a provider.
+   *
+   * The trust anchor for attestation (§6.3). null when the provider is not
+   * registered or the read failed — the binding level then caps at `present`,
+   * because there is nothing to check a response signature against.
+   *
+   * Optional so a ChainSource written before attestation binding still
+   * compiles; a source that omits it simply cannot establish attestations.
+   */
+  acknowledgedSigner?(provider: Hex): Promise<AcknowledgedSigner | null>;
 }
 
 export type TraceOrigin = 'storage' | 'local';
@@ -116,6 +127,8 @@ export class JsonRpcChainSource implements ChainSource {
     private readonly contract: Hex,
     private readonly fromBlock: bigint,
     private readonly timeoutMs = 30_000,
+    /** 0G InferenceServing. null disables attestation signer lookups. */
+    private readonly inferenceContract: Hex | null = null,
   ) {}
 
   private async call<T>(method: string, params: unknown[]): Promise<T> {
@@ -171,6 +184,67 @@ export class JsonRpcChainSource implements ChainSource {
       // not a transport failure.
       return null;
     }
+  }
+
+  /**
+   * `getService(address)` on 0G's InferenceServing contract — the trust anchor
+   * for attestation (§6.3).
+   *
+   * `Service` is a dynamic tuple, so the return is a pointer word followed by
+   * an 11-word head in which the five string members are themselves offsets.
+   * The two fields needed here are static and sit at fixed positions in that
+   * head, verified against a live Galileo response:
+   *
+   *   word  0   0x20, the pointer to the tuple
+   *   word  1   provider
+   *   word 10   teeSignerAddress
+   *   word 11   teeSignerAcknowledged
+   *
+   * Only those are decoded; walking the string offsets would mean parsing five
+   * fields to discard them. Written by hand for the same reason the rest of
+   * this file is: §9 forbids an ABI dependency.
+   */
+  async acknowledgedSigner(provider: Hex): Promise<AcknowledgedSigner | null> {
+    if (this.inferenceContract === null) return null;
+
+    // keccak256('getService(address)')[0:4], computed not pasted.
+    const selector = '0x15a52302';
+    const data = `${selector}${provider.replace(/^0x/, '').toLowerCase().padStart(64, '0')}`;
+
+    let result: string;
+    try {
+      result = await this.call<string>('eth_call', [
+        { to: this.inferenceContract, data },
+        'latest',
+      ]);
+    } catch {
+      // Unregistered providers revert. That is a negative answer, and the
+      // caller must treat it as "nothing acknowledged", never as an error that
+      // could be mistaken for a pass.
+      return null;
+    }
+
+    const body = result.replace(/^0x/, '');
+    // Pointer word plus an 11-word head.
+    if (body.length < 12 * 64) return null;
+
+    const word = (index: number): string => body.slice(index * 64, (index + 1) * 64);
+
+    // A layout that does not start with the expected pointer is not the return
+    // this decoder was written against, and guessing past that would produce a
+    // plausible address from the wrong field.
+    if (BigInt(`0x${word(0)}`) !== 32n) return null;
+
+    const signerWord = word(10);
+    const acknowledgedWord = word(11);
+    if (!/^0{24}[0-9a-fA-F]{40}$/.test(signerWord)) return null;
+    if (!/^0{63}[01]$/.test(acknowledgedWord)) return null;
+
+    return {
+      provider: provider.toLowerCase() as Hex,
+      teeSignerAddress: `0x${signerWord.slice(24)}`.toLowerCase() as Hex,
+      acknowledged: acknowledgedWord.endsWith('1'),
+    };
   }
 }
 

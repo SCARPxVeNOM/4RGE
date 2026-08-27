@@ -36,6 +36,17 @@ export interface ContractAddresses {
    */
   readonly agenticIdRegistry: Address | null;
   readonly reputationRegistry: Address | null;
+  /**
+   * 0G's InferenceServing contract — the trust anchor for TEE attestation
+   * (§6.3). `getService(provider)` returns the TEE signer 0G acknowledges for
+   * that provider, which is what a response signature must recover to before
+   * a step can be `bound`.
+   *
+   * Anchoring here rather than on a vendor PKI keeps attestation on the same
+   * public data as everything else in §9, and makes revocation work: chain
+   * state is live, so a de-acknowledged signer stops attesting immediately.
+   */
+  readonly inferenceServing: Address | null;
 }
 
 export interface Network {
@@ -67,6 +78,7 @@ const NO_CONTRACTS: ContractAddresses = {
   identityRegistry: null,
   agenticIdRegistry: null,
   reputationRegistry: null,
+  inferenceServing: null,
 };
 
 /**
@@ -85,6 +97,10 @@ const GALILEO_CONTRACTS: ContractAddresses = {
   identityRegistry: '0x7177a6867296406881E20d6647232314736Dd09A',
   agenticIdRegistry: '0x2700F6A3e505402C9daB154C5c6ab9cAEC98EF1F',
   reputationRegistry: null,
+  // 0G InferenceServing. Confirmed live: getService() for both attesting
+  // providers returns an acknowledged teeSignerAddress equal to the address in
+  // their captured quote's report_data.
+  inferenceServing: '0xa79F4c8311FF93C06b8CfB403690cc987c93F91E',
 };
 
 /**

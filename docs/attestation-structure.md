@@ -1,8 +1,8 @@
 # TEE attestation structure on 0G Compute
 
 **Status:** Phase 1 open item — resolved by observation. The binding gap this
-uncovered is closed in code, **including Intel certificate chain
-verification**. See "The gap this uncovered" below.
+uncovered is closed in code, anchored on **0G's own on-chain TEE signer
+registry**. See "The gap this uncovered" below.
 **Captured:** 2026-08-19, 0G Galileo Testnet (chain 16602), two independent providers.
 **Raw artifacts:** `artifacts/attestation/*.raw.json`
 **Reproduce:** `pnpm --filter @0gflow/attestation-probe probe`
@@ -69,10 +69,10 @@ and `app_compose`.
 
 ### `report_data` — the finding that matters
 
-**Read it from inside the quote, not from this field.** The base64
-`report_data` at the envelope's top level is a convenience copy and is *not*
-covered by the quote signature; the authenticated value lives in the TD report
-at offset 520. See "A hole this work exposed" below.
+**Advisory only.** This field is served alongside the quote and is not
+authenticated by anything 0G Flow checks. The trust anchor is the acknowledged
+`teeSignerAddress` on chain; this copy is used solely to cross-check against
+it. See "A hole this work exposed" below.
 
 64 bytes, and it is **not** a hash. It is the ASCII text of an Ethereum
 address, zero-padded to the full 64 bytes:
@@ -95,9 +95,14 @@ Note these are *not* the provider's on-chain address. They are the enclave's
 contract tracks acknowledgement of it separately
 (`checkProviderSignerStatus` → `teeSignerAddress`).
 
-Because `report_data` is covered by the TDX quote's signature, Intel's
-hardware root of trust is attesting: *"an enclave running these measurements
-controls this Ethereum key."* That is the hook the whole design hangs on.
+The key itself is the hook the whole design hangs on: an enclave controls it
+and signs responses with it, so a signature by that key is a statement from
+the enclave.
+
+0G Flow learns which key that is from **0G's own contract**, not by parsing
+this document. `getService(provider)` returns the same address (verified — see
+below), and unlike a document served by the party being verified, chain state
+cannot be rewritten by them and can be revoked.
 
 ---
 
@@ -129,14 +134,14 @@ attestationRef against the raw attestation in the trace") would catch it.
 
 Closing that requires binding the output to the attested key, in four steps:
 
-1. Verify the TDX quote signature against Intel's certificate chain.
-   *(Establishes the enclave is genuine.)* — implemented, `verifyQuote`.
-2. Extract the address from `report_data`.
-   *(Establishes which key the enclave controls.)* — implemented,
-   `signerFromReportData`.
-3. Check that address against the on-chain acknowledged TEE signer for the
-   provider. *(Establishes it is the expected enclave.)* — implemented as an
-   optional input, `verifyAttestation({ acknowledgedSigner })`.
+1. Establish which key the enclave controls, from a source that cannot be
+   forged by the party being verified — **0G's on-chain acknowledged TEE
+   signer**, read via `getService(provider)`.
+2. Require the provider to be acknowledged. A de-acknowledged signer vouches
+   for nothing, which is how revocation is expressed.
+3. Bind the receipt to a provider: `attestationRef` digests the provider
+   address, so a stored bundle cannot be re-pointed at whichever provider
+   happens to acknowledge the signing key.
 4. **Fetch the per-response signature and verify it over the actual output.**
    *(Establishes this output came from that enclave.)* — implemented, and it
    is the step everything turns on.
@@ -175,12 +180,13 @@ the last makes an attestation load-bearing.
 | Level | Means | How it is reached |
 |---|---|---|
 | `absent` | nothing was returned | no attestation |
-| `present` | a document exists and is unmodified | digest matches; **also where a quote that fails Intel verification lands** |
-| `attested` | Intel's root vouches for an enclave holding a key, and that key signed some text | quote verifies, signature recovers to the key in the signed `report_data` |
+| `present` | a document exists and is unmodified | digest matches; **also where an unresolved or de-acknowledged signer lands** |
+| `attested` | 0G vouches for a key, and that key signed some text | the registry acknowledges the provider's signer, and the response signature recovers to it |
 | `bound` | **that key signed this step's output** | additionally the signed text equals the output at `outputPath` |
 
-Quote verification is a precondition for the top two: until the chain checks
-out, `report_data` is bytes in a document anyone could have written.
+An acknowledged on-chain signer is a precondition for the top two: without one
+there is nothing to check a signature against, and the attestation document
+alone is bytes anyone could have written.
 
 `decideStepStatus` takes `requireBinding`, defaulting to `present` — which is
 what `requireAttestation` alone has always meant. A step declaring
@@ -216,68 +222,60 @@ digest exactly — sha256 over the base64-*decoded* attestation, matching what
 was actually anchored — and such receipts are reported as `present`, never
 promoted.
 
-### Quote verification
+### The trust anchor is 0G, not a vendor PKI
 
-`packages/core/src/tdx.ts`, zero dependencies, ~19KB added to the verifier
-bundle. Four checks, all required:
+0G's InferenceServing contract (`0xa79F4c83…` on Galileo) records, per
+provider, the TEE signer it has acknowledged:
 
-1. **The PCK chain terminates at the pinned Intel SGX Root CA.** Not the root
-   the quote supplies — every quote carries its own, so trusting that one would
-   mean checking a signature against a key the prover chose. The pinned copy is
-   in `intel-root.ts`; it was fetched from Intel's distribution point and is
-   byte-identical to the root inside the live captures. A test asserts it
-   hashes to the documented digest, so a swapped root fails the build.
-2. **The QE report is signed by the PCK leaf key.**
-3. **The QE report commits to the attestation key**:
-   `sha256(attestation_key ‖ qe_auth_data) == qe_report.report_data[0..32]`.
-   Without this the attestation key is unbound and anyone could substitute one.
-4. **The attestation key signed `header ‖ td_report`.**
+```solidity
+struct Service { …; address teeSignerAddress; bool teeSignerAcknowledged; }
+function getService(address provider) view returns (Service);
+```
 
-Both captured quotes verify. Flipping a byte in any security-relevant field
-breaks it; PEM whitespace and the trailing padding after the declared chain
-length are not covered by the quote signature, which is fine because
-`attestationRef` digests the whole document.
+**Verified live on Galileo.** For both captured providers, the acknowledged
+`teeSignerAddress` is byte-identical to the address inside that provider's
+quote `report_data`:
 
-The curve is **P-256**, not secp256k1 — different `a` coefficient, so the point
-arithmetic differs and a shared implementation would silently produce points
-off the curve. `p256.ts` is separate from `secp256k1.ts` for that reason.
+| Provider | On-chain `teeSignerAddress` | Quote `report_data` | Acknowledged |
+|---|---|---|---|
+| `0xa48f0128…` | `0x83df4B8E…` | `0x83df4B8E…` | yes |
+| `0x4b2a9419…` | `0x2A94D671…` | `0x2A94D671…` | yes |
+
+So anchoring on 0G does not change **which key** is trusted — it is the same
+key. It changes **who vouches for it**, from a vendor certificate chain to the
+chain this system already reads. Three things follow:
+
+- **No foreign root is vendored** and no external PKI has to be kept current.
+- **Revocation works.** Chain state is live, so a de-acknowledged signer stops
+  verifying on the next read. A pinned certificate chain cannot express that
+  without a network fetch the offline verifier was built to avoid.
+- **One evidence source.** §9's verifier resolves the signer over the same RPC
+  it already uses for receipts, hand-decoded — no ABI dependency, consistent
+  with the zero-dependency rule.
+
+The verifier reads word 10 and 11 of the `getService` return (the two static
+members of a dynamic tuple), a layout confirmed against a live response.
+
+### What this rests on, stated plainly
+
+That 0G acknowledges a signer only for an enclave it actually attested.
+
+`bound` therefore means: *0G's registry vouches for this key, and this key
+signed this output.* It is not an independent hardware proof, and nothing in
+the code or the CLI claims otherwise. The attestation document is still stored
+in the trace verbatim, so anyone who wants a hardware-level check can perform
+one out of band against the bytes the provider actually sent.
 
 ### A hole this work exposed
 
-While wiring quote verification in, the signer address was being read from the
-envelope's JSON `report_data` field. **That field is not covered by the quote
-signature** — it is served alongside as a convenience. An attacker could keep a
-genuine quote and rewrite that one field to name a key they control, reaching
-`bound` for an output the enclave never touched.
+An earlier iteration read the signer address from the attestation envelope's
+JSON `report_data` field. That field is **not authenticated** — it is served
+alongside the quote as a convenience. An attacker could keep a genuine
+attestation and rewrite that one field to name a key they control.
 
-The address now comes from inside the signed TD report. When the envelope's
-copy disagrees, that is reported. A test covers the substitution.
-
-Quote verification is also a **precondition** for `attested` and `bound`: until
-the chain checks out, `report_data` is bytes in a document anyone could have
-written, so a quote that fails verification caps the level at `present`
-regardless of how good the response signature looks.
-
-### What a verified quote still does not establish
-
-Reported in `caveats`, never omitted:
-
-- **Revocation.** CRLs live behind Intel's PCS and §9 keeps the verifier
-  offline and dependency-free. A revoked-but-unexpired PCK still passes.
-- **TCB status.** Evaluating it needs Intel's signed TCB info, another network
-  fetch. A quote from an out-of-date platform verifies.
-- **Measurement policy.** Whether *this* `mrtd`/`rtmr` set is the software you
-  expected is a policy decision, not a cryptographic one. The measurements are
-  returned so a caller can judge.
-
-So `bound` means: *Intel's root vouches for an enclave holding this key, and
-this key signed this output.* It does not mean the enclave is trustworthy.
-
-No code path prints an unqualified TEE tick. The verifier previously printed
-`attestation: TEE ✓` on a mere digest match; it now prints
-`TEE-bound to output (revocation/TCB unchecked)`.
-
----
+The signer now comes from chain only. `claimedSigner()` still parses the
+envelope's copy, but purely as an advisory cross-check: a disagreement is
+reported as a note, and the acknowledged key is what counts.
 
 ## Degradation path
 
@@ -305,10 +303,10 @@ catch, and it must not pass.
 
 ## Still open
 
-1. **Revocation and TCB status.** Both need Intel's PCS over the network,
-   which §9's offline verifier will not do. The honest options are an
-   optional online mode or periodically vendored CRL/TCB snapshots; neither is
-   built. Reported as caveats meanwhile.
+1. **Measurement policy.** `getService` says *which key* 0G vouches for, not
+   *which software* the enclave was running. Whether a given `mrtd`/`rtmr` set
+   is the image you expected is a policy question; the attestation document in
+   the trace carries the measurements for anyone who wants to judge them.
 2. **`chatID` provenance.** The binding requires it. An agent fronting 0G
    Compute must return it in `attestationBinding`; the adapter SDKs expose the
    field and reject a partially-filled binding, but no reference agent yet

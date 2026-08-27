@@ -32,6 +32,7 @@ import {
   StepStatus,
   verifyAttestation,
   ZERO_BYTES32,
+  type AcknowledgedSigner,
   type AttestationBundle,
   type AttestationVerification,
   type ExecutionTrace,
@@ -61,6 +62,18 @@ export interface ChainWriter {
     stepCount: number,
     outcome: number,
   ): Promise<{ txHash: Hex; blockNumber: bigint }>;
+}
+
+/**
+ * Reads 0G's InferenceServing registry.
+ *
+ * The trust anchor for attestation: without the acknowledged TEE signer there
+ * is nothing to check a response signature against, so a step can reach no
+ * more than `present`. Optional, because a flow of ordinary HTTP agents needs
+ * no registry at all.
+ */
+export interface SignerRegistry {
+  acknowledgedSigner(provider: Hex): Promise<AcknowledgedSigner | null>;
 }
 
 export interface TraceStore {
@@ -102,6 +115,8 @@ export interface ExecuteOptions {
   readonly chain: ChainWriter;
   readonly traces: TraceStore;
   readonly endpointFor: (step: PlannedStep) => string;
+  /** 0G's InferenceServing registry. Omitted means attestations cap at `present`. */
+  readonly signers?: SignerRegistry;
   /** Halt remaining waves after a step fails. Defaults to true (§5 policy). */
   readonly failFast?: boolean;
   readonly defaultTimeoutMs?: number;
@@ -116,6 +131,7 @@ interface StepOutcomeInternal {
 }
 
 const nowSeconds = (ms: number): bigint => BigInt(Math.floor(ms / 1000));
+const ZERO_ADDRESS = `0x${'00'.repeat(20)}` as Hex;
 
 export async function executeRun(options: ExecuteOptions): Promise<RunResult> {
   const {
@@ -125,6 +141,7 @@ export async function executeRun(options: ExecuteOptions): Promise<RunResult> {
     chain,
     traces,
     endpointFor,
+    signers,
     failFast = true,
     defaultTimeoutMs = 30_000,
     now = Date.now,
@@ -159,6 +176,7 @@ export async function executeRun(options: ExecuteOptions): Promise<RunResult> {
           endpointFor,
           defaultTimeoutMs,
           now,
+          ...(signers === undefined ? {} : { signers }),
         }),
       ),
     );
@@ -214,10 +232,11 @@ interface RunStepArgs {
   endpointFor: (step: PlannedStep) => string;
   defaultTimeoutMs: number;
   now: () => number;
+  signers?: SignerRegistry;
 }
 
 async function runStep(args: RunStepArgs): Promise<StepOutcomeInternal> {
-  const { step, halted, inputs, outputs, statusById, runId, flowId, traces, endpointFor, defaultTimeoutMs, now } = args;
+  const { step, halted, inputs, outputs, statusById, runId, flowId, traces, endpointFor, defaultTimeoutMs, now, signers } = args;
   const startedAtMs = now();
 
   // A step whose upstream did not succeed has no data to run on. Skipping is
@@ -255,6 +274,7 @@ async function runStep(args: RunStepArgs): Promise<StepOutcomeInternal> {
   let output: JsonValue;
   let attestation: string | null;
   let attestationBinding: ResponseSignature | null;
+  let attestationProvider: Hex | null;
   let attempts: AttemptRecord[];
   try {
     const invocation = await invokeHttpAdapter(
@@ -274,6 +294,7 @@ async function runStep(args: RunStepArgs): Promise<StepOutcomeInternal> {
     output = invocation.output;
     attestation = invocation.attestation;
     attestationBinding = invocation.attestationBinding;
+    attestationProvider = invocation.attestationProvider;
     attempts = invocation.attempts;
   } catch (error) {
     const adapterError = error instanceof AdapterError ? error : null;
@@ -298,13 +319,34 @@ async function runStep(args: RunStepArgs): Promise<StepOutcomeInternal> {
   //    The bundle fields go in verbatim; see attestationRefFor for why the
   //    preimage is length-prefixed rather than canonical JSON.
   const bundle: AttestationBundle | null =
-    attestation === null ? null : { quote: attestation, response: attestationBinding };
+    attestation === null
+      ? null
+      : {
+          quote: attestation,
+          // Zero when the agent named no provider: the digest still commits to
+          // a value, and a verifier will find no acknowledged signer for it.
+          provider: attestationProvider ?? ZERO_ADDRESS,
+          response: attestationBinding,
+        };
 
   const attestationRef = bundle === null ? ZERO_BYTES32 : attestationRefFor(bundle);
 
+  // The trust anchor: what 0G's registry says about this provider's TEE
+  // signer. Read live, so a de-acknowledged signer stops attesting.
+  let acknowledgedSigner: AcknowledgedSigner | null = null;
+  if (bundle !== null && signers !== undefined && attestationProvider !== null) {
+    try {
+      acknowledgedSigner = await signers.acknowledgedSigner(attestationProvider);
+    } catch {
+      // An unreachable registry is not an attestation failure; it just means
+      // nothing can be established, which the level already expresses.
+      acknowledgedSigner = null;
+    }
+  }
+
   // What the attestation actually establishes, decided here so the trace and
-  // the status agree and a verifier re-derives the same answer offline.
-  const binding = verifyAttestation({ bundle, output });
+  // the status agree and a verifier re-derives the same answer from chain.
+  const binding = verifyAttestation({ bundle, output, acknowledgedSigner });
 
   const endedAtMs = now();
   const trace = buildTrace(step, runId, resolvedInput, output, bundle, binding, attempts, null, startedAtMs, endedAtMs);
@@ -386,9 +428,9 @@ function buildTrace(
         ? null
         : {
             level: binding.level,
-            signerAddress: binding.signerAddress,
+            acknowledgedSigner: binding.acknowledgedSigner,
             recoveredAddress: binding.recoveredAddress,
-            quoteSignatureVerified: binding.quoteSignatureVerified,
+            signerResolved: binding.signerResolved,
             notes: binding.notes,
           },
     error,

@@ -239,7 +239,15 @@ export async function main(argv: readonly string[]): Promise<number> {
 
   const base = {
     runId: args.runId,
-    chain: new JsonRpcChainSource(args.rpc ?? network.rpcUrl, contract, fromBlock),
+    chain: new JsonRpcChainSource(
+      args.rpc ?? network.rpcUrl,
+      contract,
+      fromBlock,
+      30_000,
+      // 0G's InferenceServing, for resolving a provider's acknowledged TEE
+      // signer. Without it attestations cannot rise above `present`.
+      network.contracts.inferenceServing,
+    ),
     traces: buildTraceSource(network, args),
     identityRegistry: registry,
     spec,

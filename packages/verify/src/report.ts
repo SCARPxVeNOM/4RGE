@@ -25,8 +25,9 @@ const short = (hex: string, keep = 6): string =>
  * a matching digest means the document was not altered, and only `bound` means
  * the attested key signed this output.
  *
- * Nothing here prints an unqualified tick. Even `bound` is qualified, since
- * the quote's own signature is not checked against Intel's roots.
+ * Nothing here prints an unqualified tick, and the strongest line names its
+ * anchor: the binding rests on the TEE signer 0G acknowledges for the
+ * provider, read from chain.
  */
 function attestationLabel(step: StepCheck): string {
   switch (step.attestation) {
@@ -37,16 +38,16 @@ function attestationLabel(step: StepCheck): string {
     case 'verified':
       switch (step.binding?.level) {
         case 'bound':
-          // The strongest claim available, and still qualified: revocation and
-          // TCB status need a network the verifier deliberately does not use.
-          return `attestation: ${TICK} TEE-bound to output (revocation/TCB unchecked)`;
+          // The strongest claim available: 0G's registry vouches for the
+          // signer, and that signer signed this output.
+          return `attestation: ${TICK} bound to output by 0G-acknowledged TEE signer`;
         case 'attested':
           return `attestation: ${CROSS} TEE-signed, but not over this output`;
         default:
           // Digest matches; nothing establishes what the document means.
-          return step.binding?.quoteSignatureVerified === true
-            ? 'attestation: ? quote verified, output unbound'
-            : 'attestation: ? present, quote unverified';
+          return step.binding?.signerResolved === true
+            ? 'attestation: ? signer known, output unbound'
+            : 'attestation: ? present, signer unresolved';
       }
     case 'mismatched':
       return `attestation: ${CROSS} digest mismatch`;

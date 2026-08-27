@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { JsonRpcProvider } from 'ethers';
 import { createZGComputeNetworkReadOnlyBroker } from '@0gfoundation/0g-compute-ts-sdk';
 import { GALILEO, requireResolved } from '@0gflow/config';
-import { verifyQuote } from '@0gflow/core';
+import { claimedSigner, type AcknowledgedSigner } from '@0gflow/core';
 
 const RPC_URL = process.env['ZG_RPC_URL'] ?? requireResolved(GALILEO).rpcUrl;
 // Resolved against the repo root, not the CWD: pnpm --filter runs with the
@@ -50,6 +50,30 @@ async function fetchWithTimeout(url: string): Promise<Response> {
     return await fetch(url, { signal: controller.signal });
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/**
+ * The TEE signer 0G acknowledges for a provider — the trust anchor (§6.3).
+ * Read with the SDK's read-only broker, which needs no wallet.
+ */
+async function acknowledgedSignerOf(provider: string): Promise<AcknowledgedSigner | null> {
+  try {
+    const broker = await createZGComputeNetworkReadOnlyBroker(RPC_URL);
+    const services = (await broker.inference.listService(0, 50, true)) as {
+      provider: string;
+      teeSignerAddress?: string;
+      teeSignerAcknowledged?: boolean;
+    }[];
+    const match = services.find((s) => s.provider.toLowerCase() === provider.toLowerCase());
+    if (match?.teeSignerAddress === undefined) return null;
+    return {
+      provider: provider.toLowerCase() as `0x${string}`,
+      teeSignerAddress: match.teeSignerAddress.toLowerCase() as `0x${string}`,
+      acknowledged: match.teeSignerAcknowledged === true,
+    };
+  } catch {
+    return null;
   }
 }
 

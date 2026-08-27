@@ -16,10 +16,6 @@
 import { describe, expect, test } from 'vitest';
 import { privateKeyToAccount } from 'viem/accounts';
 import {
-  addressReportData,
-  mintQuote,
-} from '../../core/test/helpers/mint-quote.js';
-import {
   attestationRefFor,
   canonicalize,
   foldChainRoot,
@@ -27,6 +23,7 @@ import {
   legacyAttestationRef,
   StepStatus,
   ZERO_BYTES32,
+  type AcknowledgedSigner,
   type AttestationBundle,
   type Hex,
   type JsonValue,
@@ -47,28 +44,20 @@ const ENCLAVE = privateKeyToAccount(
   '0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318',
 );
 
+const PROVIDER = '0x00000000000000000000000000000000000000a1' as Hex;
+
 /**
- * A minted quote naming the test key, under a throwaway root.
- *
- * A real enclave key cannot be borrowed, and re-pointing a captured quote's
- * report_data no longer works — correctly, since that field is not covered by
- * the quote signature. So the whole structure is built for real and anchored
- * at a test root, which `verifyRun` accepts as an option. Re-anchoring cannot
- * weaken anything: the chain must still be complete and valid.
+ * What 0G's InferenceServing contract says. The FakeChain serves this, exactly
+ * as JsonRpcChainSource would from `getService(address)`.
  */
-const MINTED = mintQuote({ reportData: addressReportData(ENCLAVE.address) });
-const TEST_ROOT = MINTED.rootDer;
+const ACKNOWLEDGED: AcknowledgedSigner = {
+  provider: PROVIDER,
+  teeSignerAddress: ENCLAVE.address.toLowerCase() as Hex,
+  acknowledged: true,
+};
 
-function envelopeFor(quote: Uint8Array, reportData: Uint8Array): string {
-  let binary = '';
-  for (const byte of reportData) binary += String.fromCharCode(byte);
-  return JSON.stringify({
-    quote: Buffer.from(quote).toString('hex'),
-    report_data: btoa(binary),
-  });
-}
-
-const QUOTE = envelopeFor(MINTED.quote, MINTED.reportData);
+/** The attestation document. Evidence in the trace; not a trust anchor. */
+const QUOTE = JSON.stringify({ note: 'attestation document, unauthenticated' });
 
 const INPUT: JsonValue = { text: 'the findings' };
 const OUTPUT: JsonValue = { text: 'Summary: no critical findings.' };
@@ -76,6 +65,7 @@ const OUTPUT: JsonValue = { text: 'Summary: no critical findings.' };
 async function bundleOver(signedText: string, outputPath = '$.text'): Promise<AttestationBundle> {
   return {
     quote: QUOTE,
+    provider: PROVIDER,
     response: {
       chatID: 'chat-abc',
       model: 'qwen/qwen2.5-omni-7b',
@@ -110,7 +100,12 @@ class FakeChain implements ChainSource {
   constructor(
     private readonly stepLogs: RawLog[],
     private readonly sealLogs: RawLog[],
+    private readonly registry: AcknowledgedSigner | null = ACKNOWLEDGED,
   ) {}
+  async acknowledgedSigner(provider: Hex) {
+    if (this.registry === null) return null;
+    return provider.toLowerCase() === this.registry.provider.toLowerCase() ? this.registry : null;
+  }
   async getStepAnchoredLogs() {
     return this.stepLogs;
   }
@@ -140,7 +135,11 @@ class FakeTraces implements TraceSource {
  * A single-step run whose trace and receipt are internally consistent — only
  * the attestation varies.
  */
-function scenario(traceExtras: Record<string, JsonValue | null>, attestationRef: Hex) {
+function scenario(
+  traceExtras: Record<string, JsonValue | null>,
+  attestationRef: Hex,
+  registry: AcknowledgedSigner | null = ACKNOWLEDGED,
+) {
   const trace = {
     version: '0gflow/1',
     runId: RUN_ID,
@@ -179,12 +178,10 @@ function scenario(traceExtras: Record<string, JsonValue | null>, attestationRef:
 
   return {
     runId: RUN_ID,
-    chain: new FakeChain([encodeStepAnchoredLog(receipt)], [sealLog]),
+    chain: new FakeChain([encodeStepAnchoredLog(receipt)], [sealLog], registry),
     traces: new FakeTraces(new Map([[traceRoot.toLowerCase(), trace]])),
     identityRegistry: REGISTRY,
     spec: { steps: [{ id: 'summarize', input: { text: '{{ inputs.text }}' } }], inputs: { text: 'the findings' } },
-    // Anchors the minted chain. Cannot disable verification, only re-point it.
-    trustedRootDer: TEST_ROOT,
   };
 }
 
@@ -201,35 +198,44 @@ describe('an attestation that covers the output', () => {
     expect(report.failures).toEqual([]);
     expect(report.verdict).toBe('verified');
     expect(report.steps[0]!.binding?.level).toBe('bound');
-    expect(report.steps[0]!.binding?.signerAddress).toBe(ENCLAVE.address.toLowerCase());
+    expect(report.steps[0]!.binding?.acknowledgedSigner).toBe(ENCLAVE.address.toLowerCase());
   });
 
-  test('reports that the quote chain itself verified', async () => {
+  test('reports that the signer was resolved from chain', async () => {
     const bundle = await bundleOver('Summary: no critical findings.');
     const report = await verifyRun(
       scenario({ attestationBundle: bundle as unknown as JsonValue }, attestationRefFor(bundle)),
     );
 
-    expect(report.steps[0]!.binding?.quoteSignatureVerified).toBe(true);
-    // Still qualified: what a verified quote does not establish is stated.
-    expect(report.steps[0]!.notes.join(' ')).toContain('revocation');
+    expect(report.steps[0]!.binding?.signerResolved).toBe(true);
   });
 
-  test('a quote that does not reach the trust anchor cannot bind', async () => {
-    // Same bundle, verified against the real Intel root instead. The minted
-    // chain does not reach it, so the level collapses to `present` and the
-    // step is no longer a verifiable success.
+  test('an unresolvable signer cannot bind, however good the signature is', async () => {
+    // The same bundle, with 0G's registry unreadable. Nothing to check the
+    // signature against, so the level collapses to `present` and the step
+    // stops being a verifiable success.
     const bundle = await bundleOver('Summary: no critical findings.');
-    const { trustedRootDer, ...withoutRoot } = scenario(
-      { attestationBundle: bundle as unknown as JsonValue },
-      attestationRefFor(bundle),
+    const report = await verifyRun(
+      scenario({ attestationBundle: bundle as unknown as JsonValue }, attestationRefFor(bundle), null),
     );
-    void trustedRootDer;
 
-    const report = await verifyRun(withoutRoot);
     expect(report.steps[0]!.binding?.level).toBe('present');
-    expect(report.steps[0]!.binding?.quoteSignatureVerified).toBe(false);
-    expect(report.steps[0]!.notes.join(' ')).toContain('report_data establishes nothing');
+    expect(report.steps[0]!.binding?.signerResolved).toBe(false);
+    expect(report.steps[0]!.notes.join(' ')).toContain('could not be read');
+  });
+
+  test('a de-acknowledged signer stops attesting', async () => {
+    // Revocation, which is the thing anchoring on live chain state buys.
+    const bundle = await bundleOver('Summary: no critical findings.');
+    const report = await verifyRun(
+      scenario({ attestationBundle: bundle as unknown as JsonValue }, attestationRefFor(bundle), {
+        ...ACKNOWLEDGED,
+        acknowledged: false,
+      }),
+    );
+
+    expect(report.steps[0]!.binding?.level).toBe('present');
+    expect(report.steps[0]!.notes.join(' ')).toContain('has not acknowledged');
   });
 });
 
@@ -260,18 +266,19 @@ describe('THE SUBSTITUTION: a genuine attestation over a different response', ()
 
     const binding = report.steps[0]!.binding!;
     expect(binding.recoveredAddress).toBe(ENCLAVE.address.toLowerCase());
-    expect(binding.signerAddress).toBe(binding.recoveredAddress);
+    expect(binding.acknowledgedSigner).toBe(binding.recoveredAddress);
   });
 });
 
 describe('other ways the binding fails', () => {
-  test('a signature by a key the quote does not name is not a binding', async () => {
+  test('a signature by a key 0G does not acknowledge is not a binding', async () => {
     const imposter = privateKeyToAccount(
       '0x0123456789012345678901234567890123456789012345678901234567890123',
     );
     const text = 'Summary: no critical findings.';
     const bundle: AttestationBundle = {
       quote: QUOTE,
+      provider: PROVIDER,
       response: {
         chatID: 'c',
         model: 'm',
@@ -285,7 +292,7 @@ describe('other ways the binding fails', () => {
       scenario({ attestationBundle: bundle as unknown as JsonValue }, attestationRefFor(bundle)),
     );
     expect(report.steps[0]!.binding?.level).toBe('present');
-    expect(report.steps[0]!.notes.join(' ')).toContain('not the key the quote binds');
+    expect(report.steps[0]!.notes.join(' ')).toContain('not the signer 0G acknowledges');
   });
 
   test('an outputPath pointing at the wrong field does not bind', async () => {
@@ -340,7 +347,7 @@ describe('receipts anchored before binding existed', () => {
     // schemes, so an old receipt cannot be replayed as a bound one.
     const raw = btoa('an older self-signed attestation');
     expect(legacyAttestationRef(raw)).not.toBe(
-      attestationRefFor({ quote: raw, response: null }),
+      attestationRefFor({ quote: raw, provider: PROVIDER, response: null }),
     );
   });
 });
