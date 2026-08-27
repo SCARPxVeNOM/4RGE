@@ -119,6 +119,18 @@ importers:
         specifier: ^4.19.2
         version: 4.23.12
 
+  packages/storage:
+    dependencies:
+      '@0gflow/core':
+        specifier: workspace:*
+        version: link:../core
+      '@0glabs/0g-ts-sdk':
+        specifier: ^0.3.3
+        version: 0.3.3(bufferutil@4.1.0)(ethers@6.17.0(bufferutil@4.1.0)(utf-8-validate@5.0.10))(utf-8-validate@5.0.10)
+      ethers:
+        specifier: ^6.13.0
+        version: 6.17.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)
+
   packages/verify:
     devDependencies:
       '@0gflow/config':
@@ -193,6 +205,9 @@ importers:
       '@0gflow/reference-agents':
         specifier: workspace:*
         version: link:../reference-agents
+      '@0gflow/storage':
+        specifier: workspace:*
+        version: link:../../packages/storage
     devDependencies:
       tsx:
         specifier: ^4.19.2
@@ -206,6 +221,9 @@ importers:
       '@0gflow/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@0gflow/storage':
+        specifier: workspace:*
+        version: link:../../packages/storage
       '@0glabs/0g-ts-sdk':
         specifier: ^0.3.3
         version: 0.3.3(bufferutil@4.1.0)(ethers@6.17.0(bufferutil@4.1.0)(utf-8-validate@5.0.10))(utf-8-validate@5.0.10)

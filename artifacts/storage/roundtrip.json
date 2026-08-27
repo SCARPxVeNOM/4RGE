@@ -1,0 +1,9 @@
+{
+  "network": "galileo",
+  "indexer": "https://indexer-storage-testnet-turbo.0g.ai",
+  "verifiedAt": "2026-08-27T15:01:26.586Z",
+  "byteLength": 656,
+  "traceRoot": "0x400678119c983fd187eb61f4c2ede7133b57bee54b97a6685fd4426b1eedf2f3",
+  "contentSha256": "0x9be86ad6df6746ea56c1cc7ddb46cde82d5ca5fbd9f628016aad422f66114996",
+  "txHash": "0x58c21130695b2f78865f743ce94e0394a07011b5079d94d3959fba820c559dd3"
+}

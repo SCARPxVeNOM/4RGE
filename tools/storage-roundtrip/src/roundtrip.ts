@@ -20,6 +20,7 @@ import { createHash } from 'node:crypto';
 import { ethers } from 'ethers';
 import { Indexer, ZgFile } from '@0glabs/0g-ts-sdk';
 import { GALILEO, requireResolved } from '@0gflow/config';
+import { needsSubmitFix, withSubmitFix } from '@0gflow/storage';
 import { canonicalize, hashJson, type JsonValue } from '@0gflow/core';
 
 const network = requireResolved(GALILEO);
@@ -98,8 +99,35 @@ async function main() {
   const signer = new ethers.Wallet(privateKey!, provider);
   const indexer = new Indexer(INDEXER_URL);
 
-  console.log(`\nuploading as ${await signer.getAddress()} …`);
-  const [result, uploadErr] = await indexer.upload(file, RPC_URL, signer);
+  const submitter = await signer.getAddress();
+  console.log(`\nuploading as ${submitter} …`);
+
+  // The SDK builds the submission correctly but encodes it against a struct
+  // the deployed contract has moved past; see submit-fix.ts. Build the
+  // uploader here so its flow contract can be corrected before use.
+  const [uploader, uploaderErr] = await indexer.newUploaderFromIndexerNodes(
+    RPC_URL,
+    signer,
+    1,
+  );
+  if (uploaderErr !== null || uploader === null) {
+    throw new Error(`could not build an uploader: ${String(uploaderErr)}`);
+  }
+
+  const flowAddress = await uploader.flow.getAddress();
+  if (await needsSubmitFix(provider, flowAddress)) {
+    console.log(`note: flow ${flowAddress} expects the current Submission struct; correcting the SDK encoding`);
+    uploader.flow = withSubmitFix(uploader.flow, submitter);
+  }
+
+  const [result, uploadErr] = await uploader.uploadFile(file, {
+    tags: '0x',
+    finalityRequired: true,
+    taskSize: 10,
+    expectedReplica: 1,
+    skipTx: false,
+    fee: BigInt(0),
+  });
   await file.close();
 
   if (uploadErr !== null) {

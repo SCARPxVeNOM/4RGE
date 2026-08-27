@@ -14,6 +14,7 @@
     { "path": "packages/config" },
     { "path": "packages/adapter-sdk" },
     { "path": "packages/conform" },
+    { "path": "packages/storage" },
     { "path": "packages/executor" },
     { "path": "packages/indexer" },
     { "path": "packages/explorer-api" },

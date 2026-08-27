@@ -18,6 +18,7 @@ import type { AddressInfo } from 'node:net';
 import { GALILEO } from '@0gflow/config';
 import { keccak256, StepStatus, type Hex } from '@0gflow/core';
 import { executeRun, LocalTraceStore, ViemChainWriter } from '@0gflow/executor';
+import { ZgStorageTraceStore } from '@0gflow/storage';
 import { createAgentServer } from '@0gflow/reference-agents';
 import { SCENARIOS, SCENARIOS_BY_KEY, type Scenario } from './flows.js';
 
@@ -33,7 +34,45 @@ if (privateKey === undefined || privateKey.length === 0) {
 
 const STATUS_NAME = ['ok', 'failed', 'skipped', 'unattested'];
 
-async function runScenario(scenario: Scenario, agentBase: string, chain: ViemChainWriter) {
+/**
+ * 0G Storage when it will take the traces, the local directory when it will
+ * not.
+ *
+ * The difference is the verdict: a locally stored trace proves the executor
+ * kept a copy, not that a third party can fetch one, and the verifier reports
+ * INCOMPLETE for exactly that reason. Falling back silently would hide which
+ * of the two a given run actually achieved, so the choice is announced.
+ */
+async function chooseTraceStore(): Promise<{ describe: string; put: LocalTraceStore['put'] }> {
+  const key = process.env['ZG_PRIVATE_KEY'];
+  if (key === undefined || key.length === 0) return new LocalTraceStore(TRACE_DIR);
+
+  const store = new ZgStorageTraceStore({
+    rpcUrl: GALILEO.rpcUrl,
+    indexerUrl: GALILEO.storageIndexerUrl,
+    privateKey: key,
+  });
+
+  // Probe with a throwaway trace rather than discovering mid-run that storage
+  // is unavailable, which would leave some steps anchored against roots
+  // nobody can resolve.
+  try {
+    await store.put({ probe: '0gflow storage availability', at: new Date().toISOString() });
+    console.log(`traces   ${store.describe}`);
+    return store;
+  } catch (error) {
+    console.log(`traces   0G Storage unavailable (${(error as Error).message.slice(0, 90)})`);
+    console.log('         falling back to the local directory; runs will verify as INCOMPLETE');
+    return new LocalTraceStore(TRACE_DIR);
+  }
+}
+
+async function runScenario(
+  scenario: Scenario,
+  agentBase: string,
+  chain: ViemChainWriter,
+  traces: Awaited<ReturnType<typeof chooseTraceStore>>,
+) {
   const runId = keccak256(randomBytes(32)) as Hex;
 
   console.log(`\n${'='.repeat(72)}`);
@@ -47,7 +86,7 @@ async function runScenario(scenario: Scenario, agentBase: string, chain: ViemCha
     inputs: scenario.inputs,
     runId,
     chain,
-    traces: new LocalTraceStore(TRACE_DIR),
+    traces,
     endpointFor: (step) => `${agentBase}/agents/${scenario.agentFor[step.id] ?? step.id}`,
     // Off, so a failure does not mask what the rest of the run would have
     // done; the skip then demonstrably comes from the dependency, not a
@@ -131,11 +170,13 @@ async function main() {
   console.log(`balance  ${Number(await chain.balance()) / 1e18} ${GALILEO.nativeToken}`);
   console.log(`agents   ${agentBase}`);
 
+  const traces = await chooseTraceStore();
+
   const completed: Array<{ key: string; runId: Hex; outcome: number }> = [];
   try {
     for (const key of keys) {
       const scenario = SCENARIOS_BY_KEY.get(key)!;
-      const { runId, result } = await runScenario(scenario, agentBase, chain);
+      const { runId, result } = await runScenario(scenario, agentBase, chain, traces);
       completed.push({ key, runId, outcome: result.outcome });
     }
   } finally {

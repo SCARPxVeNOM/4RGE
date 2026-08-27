@@ -5,7 +5,8 @@
   "description": "Captures a real TEE attestation from 0G Compute and documents its byte structure",
   "type": "module",
   "scripts": {
-    "probe": "tsx src/probe.ts"
+    "probe": "tsx src/probe.ts",
+    "bind": "tsx src/bind.ts"
   },
   "dependencies": {
     "@0gfoundation/0g-compute-ts-sdk": "^0.9.0",

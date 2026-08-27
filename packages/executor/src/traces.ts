@@ -15,12 +15,14 @@ import type { TraceStore } from './execute.js';
 /**
  * Writes traces to disk, keyed by a sha256 of the canonical form.
  *
- * A STAND-IN, not a substitute. 0G Storage is currently rejecting submissions
- * on Galileo, and this keeps the executor exercisable in the meantime. The
- * commitment it produces is real — the root is a hash of the exact bytes
+ * A STAND-IN, not a substitute. Use `ZgStorageTraceStore` from
+ * `@0gflow/storage` for anything that needs to be verifiable by someone else.
+ *
+ * The commitment this produces is real — the root is a hash of the exact bytes
  * written — but it proves nothing about third-party retrievability, which is
  * precisely why the verifier refuses to report VERIFIED for a locally sourced
- * trace and returns INCOMPLETE instead.
+ * trace and returns INCOMPLETE instead. Useful for tests, for offline
+ * development, and as a fallback when storage is unreachable.
  */
 export class LocalTraceStore implements TraceStore {
   readonly describe: string;

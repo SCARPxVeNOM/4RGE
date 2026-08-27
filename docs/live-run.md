@@ -2,9 +2,12 @@
 
 **Status:** §11 Phase 3 gate — executed.
 **Date:** 2026-08-27, 0G Galileo Testnet (chain 16602).
+**Verdict:** all three runs **VERIFIED**, exit 0, traces retrieved from 0G
+Storage with Merkle inclusion proofs.
 **Executor:** `0x3274E860FA4d3372bD120b61367a7555713417A8`
 **Receipts contract:** `0x741A36fAba40ee71223539a5A062FDEDC8574e30`
-**Cost:** 0.00563 A0GI for three runs, nine anchored steps and three seals.
+**Cost:** 0.0185 A0GI for three runs — nine anchored steps, three seals and
+nine trace uploads to 0G Storage.
 
 Three runs, because one success proves less than a success plus the two ways a
 run is allowed to *not* succeed. §10.4 asks for a deliberately failed run that
@@ -25,53 +28,49 @@ node packages/verify/dist/verify.mjs <runId> \
 
 Read back with raw `eth_getLogs`, independently of any code in this repo:
 
-| Scenario | runId | Steps | Sealed at block | Outcome |
-|---|---|---|---|---|
-| success | `0xc8b00f25…f841df5c` | 4 | 51674067 | `0` ok |
-| unattested | `0xf2603fbc…79f2bf36` | 2 | 51674144 | `3` unattested |
-| failure | `0xf06791d2…6b188234bf` | 3 | 51674255 | `1` failed |
+| Scenario | runId | Steps | Sealed at block | Outcome | Verdict |
+|---|---|---|---|---|---|
+| success | `0x1daea014…1608f387` | 4 | 51683572 | `0` ok | VERIFIED |
+| unattested | `0x6053574e…a35d7ace4` | 2 | 51683752 | `3` unattested | VERIFIED |
+| failure | `0xfd8f562f…ba292ce4` | 3 | 51683998 | `1` failed | VERIFIED |
 
 Chain roots, as sealed:
 
 ```
-success      0xdc908a5d2203b01007de6b6ef8053f750fa80e1711f208991ffdaec45ab26c29
-unattested   0x35efd4505bc5e3f51dd8f9dc46bd74f807043fd2e3b8b335ff379409877c586c
-failure      0x633b2327d51f07a4ceac2bf08772d68d71fc47b3097c1d5bc80f4de957aee6f5
+success      0xe30f402071f2fa6e2fb77ec6c684ee7c1d8d13fffbf1d9a4b691bcd769a8bd85
+unattested   0x6fb4daee0b024bd87faffa0d57f63efbc4b5f9c9ab9ad44f94f8da4ec588a14e
+failure      0xe445471a6a0aa14255a0f47a3963bf3af66200820a503ad62defd3b8bd82a2f0
 ```
 
 Each equals the root `@0gflow/core` folds from the receipts as the *contract*
 emitted them. If canonicalization, receipt encoding or the fold had drifted
 between TypeScript and Solidity, that comparison fails.
 
+An earlier set of runs, before 0G Storage worked, is kept in git history: same
+checks, verdict INCOMPLETE, because traces were local-only.
+
 ## What verification found
 
 All three: identity ✓, trace ✓, hashes ✓, linkage ✓, chain root ✓ against the
-on-chain seal.
+on-chain seal, and every trace fetched from 0G Storage with an inclusion proof.
+No `--trace-dir` fallback is used.
 
 The failure run behaves as §10.4 requires — `review` anchored status 1 and
-`publish` status 2 (skipped, because its upstream did not succeed) — and the
-run is still sealed and still verifiable *as a failure*. The unattested run
-anchored status 3 with `attestation: ✗ required but absent`.
-
-### Verdict: INCOMPLETE, not VERIFIED
-
-All three exit `2`. Nothing failed; one piece of evidence could not be
-obtained:
-
-```
-? not every trace was retrieved from 0G Storage with a verified inclusion
-  proof, so third-party retrievability is unproven
-```
-
-This is the honest verdict and the design intends it. Traces are held locally,
-so *this* machine can check them, but a stranger cannot fetch them — and §1.3
-does not let "I could not obtain the evidence" collapse into success. See the
-storage section below for why.
+`publish` status 2 (skipped, because its upstream did not succeed) — and is
+still sealed and still verifiable *as a failure*. The unattested run anchored
+status 3 with `attestation: ✗ required but absent`.
 
 ### The verifier is not rubber-stamping
 
-Changing one character of one stored output — `1 issues` to `0 issues` in the
-audit step's trace — and re-running:
+The traces now live only on 0G Storage, so there is no local copy to edit —
+which is the point. To demonstrate detection: download them, change one
+character of one output (`1 issues` to `0 issues` in the audit step), and
+re-verify with storage pointed at a dead host so the tampered copies are the
+ones actually read:
+
+```
+node packages/verify/dist/verify.mjs <runId> --spec …   --indexer http://127.0.0.1:1 --trace-dir <tampered>
+```
 
 ```
 ✗ step 0: the stored output hashes to 0x40056629… but the receipt anchors
@@ -87,42 +86,60 @@ Chain root   ✓   0xdc908a… matches on-chain seal
 FAILED — 4 checks did not pass          (exit 1)
 ```
 
-Note the chain root still matches: only the stored trace was altered, not the
+Note the chain root still matches: only the trace was altered, not the
 anchored receipt. The two checks are independent, and the linkage collapse
 from 4/4 to 1/4 is §4.1 doing its job — one tampered output invalidates every
 downstream input derived from it.
 
 ---
 
-## Why 0G Storage did not accept the traces
+## 0G Storage: why it failed, and the fix
 
-`submit()` reverts with a bare `require(false)`. Diagnosed rather than assumed:
+`submit()` used to revert with a bare `require(false)`. Diagnosed rather than
+assumed:
 
 - **Not a network outage.** The flow contract
-  (`0x22E03a6A89B950F1c82ec5e74F8eCa321a105296`) is not paused, its market is
-  correctly cross-wired, `pricePerSector` is 30733644962, and `numSubmissions`
-  stands at 148116. Storage nodes report 2 connected peers and a current
-  `logSyncHeight`.
-- **Not the fee.** `estimateGas` reverts identically with `value` at 0, at the
+  (`0x22E03a6A89B950F1c82ec5e74F8eCa321a105296`) is unpaused, its market is
+  cross-wired, and `numSubmissions` was already past 148000. Other people's
+  submissions were landing in the same blocks.
+- **Not the fee.** `estimateGas` reverted identically at `value` 0, at the
   SDK-computed fee, and at ten times it.
-- **Other people are submitting successfully** — six flow-contract logs in the
-  last 5000 blocks, the most recent at block 51671352.
 
-**The cause is a contract/SDK mismatch.** A successful submission calls
-selector `0xbc8c11f8`, whose calldata carries two extra leading arguments (an
-address and a uint256) before the submission struct. `@0glabs/0g-ts-sdk@0.3.3`
-— the latest published version — calls `0xef3e12dc`, which is
-`submit((uint256,bytes,(bytes32,uint256)[]))`. That entrypoint still exists and
-reverts unconditionally.
+**It was an ABI mismatch.** Upstream refactored the submission type
+(`0g-storage-contracts`, `contracts/interfaces/Submission.sol`):
 
-So the deployed contract has moved to a new submit entrypoint and the published
-SDK has not followed. The new signature is not documented in the SDK, and
-guessing it was not attempted: writing a hand-rolled submission against an
-unidentified selector risks putting junk on chain, and the failure mode would
-be indistinguishable from the current one.
+```solidity
+// what @0glabs/0g-ts-sdk@0.3.3 still encodes
+struct Submission     { uint length; bytes tags; SubmissionNode[] nodes; }
 
-**Consequence:** traces are written by `LocalTraceStore` and the verifier
-reports third-party retrievability as unproven. Everything else in the
-procedure runs against public data. The moment storage accepts a submission,
-these same runs verify to `VERIFIED` with no code change — the verifier already
-tries 0G Storage first and falls back.
+// what the chain now expects
+struct SubmissionData { uint length; bytes tags; SubmissionNode[] nodes; }
+struct Submission     { SubmissionData data; address submitter; }
+```
+
+so the selector moved:
+
+```
+0xef3e12dc  submit((uint256,bytes,(bytes32,uint256)[]))            <- SDK
+0xbc8c11f8  submit(((uint256,bytes,(bytes32,uint256)[]),address))  <- chain
+```
+
+The flow address is a **beacon proxy** whose own 295 bytes of runtime contain
+no selectors at all, so checking its bytecode finds nothing and answers
+confidently wrong. Following the beacon
+(`0x7fb56db4…` → implementation `0xf99cccc4…`) shows the legacy selector is
+**absent** and the current one **present**: calls to the old entrypoint fall
+through and revert with no reason string, which is exactly why it looked like
+a network fault.
+
+`packages/storage/src/submit-fix.ts` corrects it. The SDK builds the
+submission correctly — Merkle tree, node list, tags — and only the final
+encoding is wrong, so the shim intercepts the single call that is wrong and
+re-encodes it, leaving segment upload, proof generation and log processing
+untouched. It resolves the proxy to decide whether the fix is needed, so it
+disables itself once the SDK is republished.
+
+One further bug surfaced only under load: the executor runs a wave's steps
+concurrently, so trace uploads raced for one nonce and the second was rejected
+as `replacement transaction underpriced`. `ZgStorageTraceStore` serialises
+uploads — the same one-signer-one-nonce rule §7.2 states for anchoring.
