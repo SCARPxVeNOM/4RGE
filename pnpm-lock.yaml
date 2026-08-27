@@ -46,7 +46,19 @@ importers:
         specifier: ^6.0.5
         version: 6.4.3(@types/node@22.20.1)(tsx@4.23.12)
 
+  packages/adapter-sdk:
+    devDependencies:
+      '@0gflow/core':
+        specifier: workspace:*
+        version: link:../core
+
   packages/config: {}
+
+  packages/conform:
+    dependencies:
+      '@0gflow/core':
+        specifier: workspace:*
+        version: link:../core
 
   packages/core: {}
 

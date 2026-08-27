@@ -9,7 +9,7 @@
     "build": "pnpm -r build",
     "test": "pnpm --filter @0gflow/verify build && vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -b --force",
+    "typecheck": "tsc -b --force && tsc --noEmit -p apps/explorer",
     "test:contracts": "forge test --root contracts"
   },
   "devDependencies": {

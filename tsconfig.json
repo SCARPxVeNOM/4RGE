@@ -1,0 +1,22 @@
+/*
+ * Solution root for `tsc -b`. It emits nothing itself; it exists so that
+ * `pnpm typecheck` builds every package in dependency order and fails on the
+ * first type error anywhere in the tree.
+ *
+ * apps/explorer is deliberately absent: it is a bundler-resolved, noEmit React
+ * app, and `noEmit` is incompatible with the `composite` a project reference
+ * requires. It is typechecked by its own tsconfig in the same script.
+ */
+{
+  "files": [],
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/config" },
+    { "path": "packages/adapter-sdk" },
+    { "path": "packages/conform" },
+    { "path": "packages/executor" },
+    { "path": "packages/indexer" },
+    { "path": "packages/explorer-api" },
+    { "path": "packages/verify" }
+  ]
+}

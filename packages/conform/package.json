@@ -1,0 +1,16 @@
+{
+  "name": "@0gflow/conform",
+  "version": "1.0.0",
+  "description": "Adapter conformance suite for 0G Flow agents (spec §6.4). Passing is the criterion for composability.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": { "conform": "./dist/cli.js" },
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "files": ["dist"],
+  "scripts": { "build": "tsc -b" },
+  "dependencies": {
+    "@0gflow/core": "workspace:*"
+  },
+  "license": "MIT"
+}
