@@ -20,6 +20,7 @@ import {
   canonicalize,
   foldChainRoot,
   hashJson,
+  sha256,
   legacyAttestationRef,
   StepStatus,
   ZERO_BYTES32,
@@ -62,7 +63,16 @@ const QUOTE = JSON.stringify({ note: 'attestation document, unauthenticated' });
 const INPUT: JsonValue = { text: 'the findings' };
 const OUTPUT: JsonValue = { text: 'Summary: no critical findings.' };
 
-async function bundleOver(signedText: string, outputPath = '$.text'): Promise<AttestationBundle> {
+/**
+ * A bundle whose enclave answered `answer`, shaped like a real 0G Compute
+ * exchange: the signed text is a digest envelope over the response bytes, not
+ * the answer itself.
+ */
+async function bundleOver(answer: string, outputPath = '$.text'): Promise<AttestationBundle> {
+  const responseBody = JSON.stringify({ choices: [{ message: { content: answer } }] });
+  const digest = sha256(new TextEncoder().encode(responseBody)).slice(2);
+  const signedText = `${'aa'.repeat(32)}:${digest}:centralized:test:${'bb'.repeat(32)}`;
+
   return {
     quote: QUOTE,
     provider: PROVIDER,
@@ -71,6 +81,8 @@ async function bundleOver(signedText: string, outputPath = '$.text'): Promise<At
       model: 'qwen/qwen2.5-omni-7b',
       text: signedText,
       signature: (await ENCLAVE.signMessage({ message: signedText })) as Hex,
+      responseBody,
+      responsePath: '$.choices[0].message.content',
       outputPath,
     },
   };
@@ -284,6 +296,8 @@ describe('other ways the binding fails', () => {
         model: 'm',
         text,
         signature: (await imposter.signMessage({ message: text })) as Hex,
+        responseBody: JSON.stringify({ choices: [{ message: { content: text } }] }),
+        responsePath: '$.choices[0].message.content',
         outputPath: '$.text',
       },
     };

@@ -2,7 +2,9 @@
 
 **Status:** Phase 1 open item — resolved by observation. The binding gap this
 uncovered is closed in code, anchored on **0G's own on-chain TEE signer
-registry**. See "The gap this uncovered" below.
+registry**, and **exercised against a live 0G Compute inference**: a real
+completion reaches `bound`. See "The gap this uncovered" and "What a live
+capture corrected" below.
 **Captured:** 2026-08-19, 0G Galileo Testnet (chain 16602), two independent providers.
 **Raw artifacts:** `artifacts/attestation/*.raw.json`
 **Reproduce:** `pnpm --filter @0gflow/attestation-probe probe`
@@ -276,6 +278,76 @@ attestation and rewrite that one field to name a key they control.
 The signer now comes from chain only. `claimedSigner()` still parses the
 envelope's copy, but purely as an advisory cross-check: a disagreement is
 reported as a note, and the acknowledged key is what counts.
+
+## What a live capture corrected
+
+Everything above was designed against captured *quotes*. The per-response
+signature could not be exercised without a paid inference, and when one was
+finally run on Galileo it invalidated an assumption the design rested on.
+
+### The signed text is not the answer
+
+`GET {endpoint}/signature/{chatID}` returns a `text` that is a colon-delimited
+envelope of digests, not the completion:
+
+```
+<sha256(request)>:<sha256(response)>:centralized:aliyun:<provider hash>
+```
+
+Two captures with different prompts settled which fields mean what: fields 0
+and 1 change with content, fields 2–4 are provider constants. Field 1 is
+**sha256 of the exact response bytes**, and it is the only part a verifier can
+reproduce.
+
+The original design compared the signed text against the step output directly.
+Against a real provider that comparison can only ever fail, so `bound` was
+unreachable — the feature would have looked implemented and never worked.
+
+### The corrected binding
+
+A bundle now carries the response verbatim, and `bound` requires three links:
+
+1. the signature recovers to the TEE signer 0G acknowledges for the provider
+2. the signed text commits to `responseBody` — either by equalling it, or by
+   carrying its sha256 as one of the colon-delimited fields
+3. the value at `responsePath` inside `responseBody` equals the value at
+   `outputPath` inside the step's output
+
+Both paths are recorded by the agent, because only it knows how it built its
+output from the provider's response. `responseBody` is stored byte for byte: a
+`JSON.parse`/`JSON.stringify` round trip changes the bytes, breaks the digest,
+and correctly fails.
+
+`packages/core/test/fixtures/zg-compute-binding.json` is the live capture, and
+the tests around it assert the real signature, the real digest relationship,
+and that a re-serialised or substituted response does not bind.
+
+### Two smaller traps
+
+**The chatID is the `ZG-Res-Key` response header**, not the completion `id`.
+They differ by a `chatcmpl-` prefix, and using the id gets
+`chat_id_not_found` from the signature endpoint. The SDK mentions this only in
+a passing comment and its own example server never exercises it.
+
+**The endpoint from `getServiceMetadata` already ends in `/v1/proxy`**, so the
+signature path is `/signature/{chatID}` — appending the SDK helper's own path
+doubles the segment and returns 400.
+
+### Funding, for anyone reproducing this
+
+The SDK refuses to open a ledger below 3 A0GI, claiming to mirror
+`MIN_ACCOUNT_BALANCE` in the LedgerManager contract. That constant actually
+reads **0.1 A0GI** on Galileo, so the ledger is opened by calling the contract
+directly. Two further floors are enforced for real and were found by hitting
+them: acknowledging a provider needs 1 A0GI available, and the provider then
+rejects requests unless the *locked* sub-account balance exceeds 1 A0GI plus
+unsettled fees.
+
+```
+ZG_PRIVATE_KEY=… pnpm --filter @0gflow/attestation-probe bind
+```
+
+---
 
 ## Degradation path
 

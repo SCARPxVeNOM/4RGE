@@ -29,10 +29,42 @@ if (privateKey === undefined || privateKey.length === 0) {
   process.exit(1);
 }
 
-/** Deposited into the ledger when it is empty. Small: one prompt costs far less. */
-const LEDGER_TOP_UP = 0.05;
+/**
+ * Deposited into the ledger when it is empty. One prompt costs far less.
+ *
+ * The SDK refuses anything under 3 A0GI, with a comment claiming that mirrors
+ * `MIN_ACCOUNT_BALANCE` in the LedgerManager contract. It does not: that
+ * constant reads 0.1 A0GI on Galileo (`MIN_ACCOUNT_BALANCE()` →
+ * 100000000000000000). The SDK's floor is a stale client-side guard, so the
+ * ledger is created by calling the contract directly rather than by depositing
+ * thirty times what the chain asks for.
+ */
+const LEDGER_TOP_UP_A0GI = 0.5;
 
-const PROMPT = 'Reply with exactly: 0G Flow attestation binding probe.';
+/**
+ * What the ledger must hold before inference will run.
+ *
+ * Two separate floors, both observed rather than documented. Acknowledging a
+ * provider opens a per-provider sub-account and the contract rejects it below
+ * 1 A0GI (`InsufficientAvailableBalance(5e17, 1e18)`). The provider then
+ * refuses the request unless the *locked* balance exceeds a 1 A0GI reserve
+ * plus unsettled fees, so an exactly-1 ledger still fails with
+ * "required minimum is 1.000065". Two gives room for both.
+ */
+const WORKING_BALANCE = 2_000_000_000_000_000_000n;
+
+/** Below this a top-up is float noise, not a real shortfall. */
+const DUST = 1_000_000_000_000_000n;
+
+/** Galileo LedgerManager. */
+const LEDGER_CONTRACT = '0xE70830508dAc0A97e6c087c75f402f9Be669E406';
+const LEDGER_ABI = ['function addLedger(string additionalInfo) payable'];
+
+const PROMPT =
+  process.env['ZG_PROMPT'] ?? 'Reply with exactly: 0G Flow attestation binding probe.';
+
+/** Lets a second capture be written alongside the first, for comparison. */
+const OUT_NAME = process.env['ZG_BINDING_NAME'] ?? 'binding';
 
 async function main() {
   const provider = new ethers.JsonRpcProvider(network.rpcUrl);
@@ -58,16 +90,39 @@ async function main() {
   console.log(`ledger   ${ethers.formatEther(balance)} ${network.nativeToken}`);
 
   if (balance === 0n) {
-    console.log(`         empty; depositing ${LEDGER_TOP_UP} …`);
-    try {
-      await broker.ledger.addLedger(LEDGER_TOP_UP);
-    } catch (error) {
-      // A ledger that already exists cannot be added again; top it up instead.
-      if (!/exist/i.test(String((error as Error).message))) throw error;
-      await broker.ledger.depositFund(LEDGER_TOP_UP);
+    const minimum = await new ethers.Contract(
+      LEDGER_CONTRACT,
+      ['function MIN_ACCOUNT_BALANCE() view returns (uint256)'],
+      provider,
+    ).MIN_ACCOUNT_BALANCE();
+    const deposit = ethers.parseEther(String(LEDGER_TOP_UP_A0GI));
+    if (deposit < minimum) {
+      throw new Error(
+        `the contract requires at least ${ethers.formatEther(minimum)} to open a ledger`,
+      );
     }
+
+    console.log(`         empty; opening with ${LEDGER_TOP_UP_A0GI} (contract minimum ${ethers.formatEther(minimum)}) …`);
+    const ledgerContract = new ethers.Contract(LEDGER_CONTRACT, LEDGER_ABI, wallet);
+    const tx = await ledgerContract.addLedger!('', { value: deposit });
+    await tx.wait();
+    console.log(`         tx ${tx.hash}`);
+
     const ledger = await broker.ledger.getLedger();
-    console.log(`         now ${ethers.formatEther(BigInt(ledger.totalBalance ?? 0n))}`);
+    balance = BigInt(ledger.totalBalance ?? 0n);
+    console.log(`         now ${ethers.formatEther(balance)}`);
+  }
+
+  // Acknowledging a provider opens a sub-account funded from the ledger, and
+  // that needs 1 A0GI of its own. Topping up is unguarded once the ledger
+  // exists, so the SDK's own method is fine here.
+  if (WORKING_BALANCE - balance > DUST) {
+    const shortfall = Number(ethers.formatEther(WORKING_BALANCE - balance));
+    console.log(`         topping up ${shortfall} for the provider sub-account …`);
+    await broker.ledger.depositFund(shortfall);
+    const ledger = await broker.ledger.getLedger();
+    balance = BigInt(ledger.totalBalance ?? 0n);
+    console.log(`         now ${ethers.formatEther(balance)}`);
   }
 
   // 2. Pick a provider that serves a chat model and has an acknowledged signer.
@@ -94,7 +149,7 @@ async function main() {
       const result = await probe(broker, providerAddress, status.teeSignerAddress);
       if (result !== null) {
         mkdirSync(OUT_DIR, { recursive: true });
-        writeFileSync(`${OUT_DIR}/binding.json`, JSON.stringify(result, null, 2) + '\n');
+        writeFileSync(`${OUT_DIR}/${OUT_NAME}.json`, JSON.stringify(result, null, 2) + '\n');
         console.log(`\nwrote ${OUT_DIR}/binding.json`);
         await provider.destroy();
         return;
@@ -115,6 +170,33 @@ async function probe(
 ): Promise<Record<string, unknown> | null> {
   await broker.inference.acknowledgeProviderSigner(providerAddress).catch(() => undefined);
 
+  // The provider checks the *locked* balance in its own sub-account, not the
+  // ledger total. Acknowledging locks exactly 1 A0GI, and the provider then
+  // demands strictly more than that ("required minimum is 1.000065"), so a
+  // freshly acknowledged account is always a hair short. Push the remaining
+  // ledger balance across rather than depositing more: the funds are already
+  // there, just on the wrong side of the sub-account boundary.
+  const ledger = (await broker.ledger.getLedger()) as unknown as {
+    totalBalance?: bigint;
+    availableBalance?: bigint;
+  };
+  const available = BigInt(ledger.availableBalance ?? 0n);
+  console.log(
+    `  ledger total ${ethers.formatEther(BigInt(ledger.totalBalance ?? 0n))}, available ${ethers.formatEther(available)}`,
+  );
+  if (available > 0n) {
+    // Leave a little behind so the transfer itself cannot be short.
+    const move = (available * 9n) / 10n;
+    if (move > 0n) {
+      console.log(`  transferring ${ethers.formatEther(move)} into the provider sub-account …`);
+      await broker.ledger
+        .transferFund(providerAddress, 'inference', move)
+        .catch((error: unknown) => {
+          console.log(`  (transfer skipped: ${(error as Error).message.slice(0, 90)})`);
+        });
+    }
+  }
+
   const { endpoint, model } = await broker.inference.getServiceMetadata(providerAddress);
   console.log(`  endpoint ${endpoint}`);
 
@@ -122,13 +204,17 @@ async function probe(
   // proof, so they cannot be reused across requests.
   const headers = await broker.inference.getRequestHeaders(providerAddress, PROMPT);
 
+  const requestBody = JSON.stringify({ model, messages: [{ role: 'user', content: PROMPT }] });
   const response = await fetch(`${endpoint}/chat/completions`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...(headers as Record<string, string>) },
-    body: JSON.stringify({ model, messages: [{ role: 'user', content: PROMPT }] }),
+    body: requestBody,
   });
 
-  const body = (await response.json()) as {
+  // Kept verbatim: whether the signed digests can be recomputed by a verifier
+  // depends on the exact bytes, so a re-serialised copy would prove nothing.
+  const responseText = await response.text();
+  const body = JSON.parse(responseText) as {
     id?: string;
     choices?: { message?: { content?: string } }[];
     error?: unknown;
@@ -137,8 +223,14 @@ async function probe(
     throw new Error(`inference returned HTTP ${response.status}: ${JSON.stringify(body).slice(0, 200)}`);
   }
 
-  const chatID = body.id;
+  // The signature is keyed by the ZG-Res-Key response header, not by the
+  // completion id. They differ, and using the completion id gets
+  // "chat_id_not_found" from the signature endpoint — the SDK notes this in a
+  // comment and its own example server never exercises it.
+  const chatID = response.headers.get('ZG-Res-Key') ?? body.id;
   const content = body.choices?.[0]?.message?.content;
+  console.log(`  ZG-Res-Key ${response.headers.get('ZG-Res-Key') ?? '(absent)'}`);
+  console.log(`  completion.id ${body.id ?? '(absent)'}`);
   if (chatID === undefined || content === undefined) {
     throw new Error(`response carried no id/content: ${JSON.stringify(body).slice(0, 200)}`);
   }
@@ -146,10 +238,28 @@ async function probe(
   console.log(`  content  ${JSON.stringify(content.slice(0, 80))}`);
 
   // The signature the enclave produced over its own response.
-  const signatureUrl = `${endpoint}/proxy/signature/${chatID}?model=${encodeURIComponent(model)}`;
-  const signatureResponse = await fetch(signatureUrl);
-  if (!signatureResponse.ok) {
-    throw new Error(`signature endpoint returned HTTP ${signatureResponse.status}`);
+  //
+  // `getServiceMetadata` already returns the endpoint with `/v1/proxy` on it,
+  // so the path here is just `/signature/{chatID}`. The SDK's own helper takes
+  // the bare service URL and appends `/v1/proxy/signature/...`; appending its
+  // path to this endpoint doubles the segment and the provider answers 400.
+  const signatureUrl = `${endpoint}/signature/${chatID}?model=${encodeURIComponent(model)}`;
+  // The enclave signs after it has finished streaming, so a request issued the
+  // instant the completion returns can arrive before the signature exists.
+  let signatureResponse: Response | null = null;
+  let lastBody = '';
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    const r = await fetch(signatureUrl);
+    if (r.ok) {
+      signatureResponse = r;
+      break;
+    }
+    lastBody = (await r.text()).slice(0, 300);
+    console.log(`  signature attempt ${attempt}/5 -> HTTP ${r.status} ${lastBody}`);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+  if (signatureResponse === null) {
+    throw new Error(`signature endpoint never succeeded; last body: ${lastBody}`);
   }
   const signed = (await signatureResponse.json()) as { text?: string; signature?: string };
   if (signed.text === undefined || signed.signature === undefined) {
@@ -185,6 +295,8 @@ async function probe(
     signature: signed.signature,
     responseContent: content,
     signedTextEqualsResponse: coversResponse,
+    rawRequestBody: requestBody,
+    rawResponseBody: responseText,
   };
 }
 

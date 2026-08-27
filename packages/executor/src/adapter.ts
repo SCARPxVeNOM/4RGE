@@ -200,8 +200,10 @@ function parseBinding(value: unknown): ResponseSignature | null {
   const model = binding['model'];
   const text = binding['text'];
   const signature = binding['signature'];
-  // Defaults to the whole output, which is the only assumption that cannot
+  const responseBody = binding['responseBody'];
+  // Both default to the whole document, the only assumption that cannot
   // silently point at the wrong field.
+  const responsePath = binding['responsePath'] ?? '$';
   const outputPath = binding['outputPath'] ?? '$';
 
   if (
@@ -209,12 +211,23 @@ function parseBinding(value: unknown): ResponseSignature | null {
     typeof model !== 'string' ||
     typeof text !== 'string' ||
     typeof signature !== 'string' ||
+    typeof responseBody !== 'string' ||
+    typeof responsePath !== 'string' ||
     typeof outputPath !== 'string' ||
-    signature.length === 0
+    signature.length === 0 ||
+    responseBody.length === 0
   ) {
     return null;
   }
-  return { chatID, model, text, signature: signature as Hex, outputPath };
+  return {
+    chatID,
+    model,
+    text,
+    signature: signature as Hex,
+    responseBody,
+    responsePath,
+    outputPath,
+  };
 }
 
 function parseError(status: number, body: string): { code: string; message: string; retryable: boolean } {

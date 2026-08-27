@@ -1,0 +1,11 @@
+{
+  "capturedAt": "2026-08-27T17:50:33.021Z",
+  "provider": "0xa48f01287233509fd694a22bf840225062e67836",
+  "teeSignerAddress": "0x83df4b8eba7c0b3b740019b8c9a77fff77d508cf",
+  "chatID": "89676bed-8727-4a4e-88be-05a0fb00aa4c",
+  "model": "qwen/qwen2.5-omni-7b",
+  "text": "89b8bc0abae44c40fff67d77ab61d8d8c7caf5f339fa80e96383bda3f98b0e18:feb8ecc9b76c765bb0e4f1d6412f873185631d770ce0b7abb1bd0f4bf3aa4e38:centralized:aliyun:cc7c08805b2b0c44f53faae5d917ac07367fd9112971ca2405b8fa2e4b0acd51",
+  "signature": "0xfa43cdaf2f1941e09643bf789eca5baf2ab19195fd68c0048de33f2f9dfd076b1faad6e977a05133573e22d9a40b554550f43c9b8329fc5063ca3c2b81be53591b",
+  "responseContent": "0G Flow attestation binding probe.",
+  "signedTextEqualsResponse": false
+}

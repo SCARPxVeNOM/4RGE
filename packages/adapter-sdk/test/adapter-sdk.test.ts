@@ -68,8 +68,11 @@ describe('handleInvoke', () => {
     const binding = {
       chatID: 'chat-1',
       model: 'qwen/qwen2.5-omni-7b',
-      text: 'Summary: ok.',
+      // A digest envelope, as 0G Compute actually signs.
+      text: `${'aa'.repeat(32)}:${'bb'.repeat(32)}:centralized:test:${'cc'.repeat(32)}`,
       signature: `0x${'ab'.repeat(65)}`,
+      responseBody: '{"choices":[{"message":{"content":"Summary: ok."}}]}',
+      responsePath: '$.choices[0].message.content',
       outputPath: '$.text',
     };
     const attesting: AgentDefinition = {
@@ -89,12 +92,22 @@ describe('handleInvoke', () => {
   it('rejects a half-filled binding rather than anchoring an uncheckable one', async () => {
     // A binding missing a field would still be digested into attestationRef,
     // and the step would look attested while proving nothing.
-    for (const missing of ['chatID', 'model', 'text', 'signature', 'outputPath']) {
+    for (const missing of [
+      'chatID',
+      'model',
+      'text',
+      'signature',
+      'responseBody',
+      'responsePath',
+      'outputPath',
+    ]) {
       const binding: Record<string, string> = {
         chatID: 'c',
         model: 'm',
         text: 't',
         signature: '0xab',
+        responseBody: '{}',
+        responsePath: '$',
         outputPath: '$',
       };
       delete binding[missing];

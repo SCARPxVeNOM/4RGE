@@ -81,17 +81,43 @@ export function meetsBinding(level: BindingLevel, required: BindingLevel): boole
 export interface ResponseSignature {
   readonly chatID: string;
   readonly model: string;
-  /** The text the enclave signed, verbatim. */
+  /**
+   * The text the enclave signed, verbatim.
+   *
+   * On 0G Compute this is NOT the completion. It is a colon-delimited envelope
+   * of digests, observed live on Galileo:
+   *
+   *   <sha256(request)>:<sha256(response)>:centralized:aliyun:<provider hash>
+   *
+   * Only the second field is reproducible by a verifier, and it is the one
+   * that matters: it commits to the exact response bytes. Assuming the signed
+   * text equalled the answer — as an earlier version of this module did —
+   * makes `bound` unreachable against a real provider.
+   */
   readonly text: string;
   /** 65-byte secp256k1 signature over the EIP-191 digest of `text`. */
   readonly signature: Hex;
   /**
-   * Which part of the step output the signed text is. A dotted path such as
-   * `$.text`, or `$` when the whole output is the signed string.
+   * The provider's response, byte for byte as served.
    *
-   * Recorded rather than assumed: the executor knows how it built the output
-   * from the completion, and a verifier working from the trace alone does not.
-   * Without it, `bound` would rest on a convention nobody wrote down.
+   * The link between the signature and the answer: `text` commits to
+   * sha256 of these bytes, and the step's output is drawn from them. Storing a
+   * re-serialised copy breaks the digest and with it the whole binding.
+   */
+  readonly responseBody: string;
+  /**
+   * Where the answer sits inside `responseBody` — for an OpenAI-shaped
+   * completion, `$.choices[0].message.content`.
+   */
+  readonly responsePath: string;
+  /**
+   * Where the same value sits inside the step's output. `$` when the output is
+   * that value; `$.text` when it was wrapped.
+   *
+   * Both paths are recorded rather than assumed: the agent knows how it built
+   * its output from the provider's response, and a verifier working from the
+   * trace alone does not. Without them, `bound` would rest on a convention
+   * nobody wrote down.
    */
   readonly outputPath: string;
 }
@@ -260,6 +286,8 @@ export function attestationRefFor(bundle: AttestationBundle): Hex {
     utf8(response?.model ?? ''),
     utf8(response?.text ?? ''),
     response === null ? new Uint8Array(0) : hexBytes(response.signature),
+    utf8(response?.responseBody ?? ''),
+    utf8(response?.responsePath ?? ''),
     utf8(response?.outputPath ?? ''),
   ]);
   return sha256(preimage);
@@ -445,8 +473,35 @@ export function verifyAttestation(input: VerifyAttestationInput): AttestationVer
   // At this point the acknowledged signer signed `response.text`. That is
   // exactly as far as the 0G SDK goes, and it is not yet a statement about the
   // output.
+  //
+  // What follows is the comparison the SDK omits, in two links:
+  //   1. the signed text commits to the response bytes we were given
+  //   2. the step's output is the value those bytes carry
+  // Break either and the signature belongs to some other exchange.
+
+  if (!signedTextCommitsTo(response.text, response.responseBody)) {
+    notes.push(
+      'the signature does not commit to the stored response: it belongs to a different exchange',
+    );
+    return { ...base, level: 'attested', recoveredAddress, notes };
+  }
+
   if (input.output === null) {
-    notes.push('output unavailable, so the signed text could not be compared against it');
+    notes.push('output unavailable, so it could not be compared against the signed response');
+    return { ...base, level: 'attested', recoveredAddress, notes };
+  }
+
+  let parsedResponse: JsonValue;
+  try {
+    parsedResponse = JSON.parse(response.responseBody) as JsonValue;
+  } catch {
+    notes.push('the stored response is not JSON, so the output could not be located in it');
+    return { ...base, level: 'attested', recoveredAddress, notes };
+  }
+
+  const answer = resolveOutputPath(parsedResponse, response.responsePath);
+  if (answer === undefined) {
+    notes.push(`responsePath ${response.responsePath} does not resolve in the signed response`);
     return { ...base, level: 'attested', recoveredAddress, notes };
   }
 
@@ -456,16 +511,17 @@ export function verifyAttestation(input: VerifyAttestationInput): AttestationVer
     return { ...base, level: 'attested', recoveredAddress, notes };
   }
 
-  // The comparison the SDK omits. Without it, a provider can serve one
-  // completion and a correctly-signed different text.
-  const matches =
-    typeof claimedOutput === 'string'
-      ? claimedOutput === response.text
-      : new TextDecoder().decode(canonicalBytes(claimedOutput)) === response.text;
+  // Compared canonically so key order in either document cannot break a
+  // genuine binding, and cannot paper over a real difference either.
+  const same =
+    typeof answer === 'string' && typeof claimedOutput === 'string'
+      ? answer === claimedOutput
+      : new TextDecoder().decode(canonicalBytes(answer)) ===
+        new TextDecoder().decode(canonicalBytes(claimedOutput));
 
-  if (!matches) {
+  if (!same) {
     notes.push(
-      'the signed text does not match the step output: this attestation belongs to a different response',
+      'the step output is not what the signed response carried: this attestation belongs to a different response',
     );
     return { ...base, level: 'attested', recoveredAddress, notes };
   }
@@ -478,6 +534,29 @@ export function verifyAttestation(input: VerifyAttestationInput): AttestationVer
     // disagreement, if there was one.
     notes: notes.filter((n) => n.includes('the attestation document names')),
   };
+}
+
+/**
+ * Whether a signed text commits to these response bytes.
+ *
+ * Two shapes are accepted, because the envelope is the provider's choice and
+ * not something the protocol can dictate:
+ *
+ *   - the signed text IS the response (a provider that signs its answer)
+ *   - the signed text contains sha256 of the response among colon-delimited
+ *     fields (0G Compute, observed on Galileo)
+ *
+ * Anything else fails closed. Searching for the digest anywhere in the string
+ * rather than at a fixed index keeps this working if the envelope gains or
+ * reorders fields, without ever accepting a text that does not carry it.
+ */
+export function signedTextCommitsTo(signedText: string, responseBody: string): boolean {
+  if (signedText === responseBody) return true;
+  const digest = sha256(new TextEncoder().encode(responseBody)).slice(2).toLowerCase();
+  return signedText
+    .toLowerCase()
+    .split(':')
+    .some((field) => field === digest);
 }
 
 /** Human-readable, and deliberately never an unqualified tick. */

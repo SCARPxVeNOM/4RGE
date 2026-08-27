@@ -116,8 +116,11 @@ class TestAttestationBinding:
     BINDING = AttestationBinding(
         chat_id="chat-1",
         model="qwen/qwen2.5-omni-7b",
-        text="Summary: ok.",
+        # A digest envelope, as 0G Compute actually signs.
+        text="aa" * 32 + ":" + "bb" * 32 + ":centralized:test:" + "cc" * 32,
         signature="0x" + "ab" * 65,
+        response_body='{"choices":[{"message":{"content":"Summary: ok."}}]}',
+        response_path="$.choices[0].message.content",
         output_path="$.text",
     )
 
@@ -135,8 +138,10 @@ class TestAttestationBinding:
         assert result.body["attestationBinding"] == {
             "chatID": "chat-1",
             "model": "qwen/qwen2.5-omni-7b",
-            "text": "Summary: ok.",
+            "text": "aa" * 32 + ":" + "bb" * 32 + ":centralized:test:" + "cc" * 32,
             "signature": "0x" + "ab" * 65,
+            "responseBody": '{"choices":[{"message":{"content":"Summary: ok."}}]}',
+            "responsePath": "$.choices[0].message.content",
             "outputPath": "$.text",
         }
 
@@ -145,12 +150,14 @@ class TestAttestationBinding:
         assert "attestationBinding" in result.body
         assert result.body["attestationBinding"] is None
 
-    def test_defaults_output_path_to_the_whole_output(self) -> None:
+    def test_defaults_both_paths_to_the_whole_document(self) -> None:
         binding = AttestationBinding(chat_id="c", model="m", text="t", signature="0xab")
         assert binding.output_path == "$"
+        assert binding.response_path == "$"
 
     @pytest.mark.parametrize(
-        "field", ["chat_id", "model", "text", "signature", "output_path"]
+        "field",
+        ["chat_id", "model", "text", "signature", "response_body", "response_path", "output_path"],
     )
     def test_rejects_a_half_filled_binding(self, field: str) -> None:
         # A binding missing a field would still be digested into
@@ -161,6 +168,8 @@ class TestAttestationBinding:
             "model": "m",
             "text": "t",
             "signature": "0xab",
+            "response_body": "{}",
+            "response_path": "$",
             "output_path": "$",
         }
         values[field] = ""

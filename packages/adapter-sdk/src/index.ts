@@ -78,19 +78,35 @@ export class SchemaError extends AgentError {
  * omits, using `outputPath`.
  */
 export interface AttestationBinding {
+  /** From the `ZG-Res-Key` response header, not the completion id. */
   readonly chatID: string;
   readonly model: string;
-  /** The text the enclave signed, verbatim. */
+  /**
+   * The text the enclave signed, verbatim.
+   *
+   * On 0G Compute this is a colon-delimited digest envelope, not the answer:
+   * `<sha256(request)>:<sha256(response)>:<type>:<identity>:<hash>`. Pass it
+   * through untouched; the executor checks that it commits to `responseBody`.
+   */
   readonly text: string;
   /** The 65-byte signature, 0x hex, exactly as returned. */
   readonly signature: string;
   /**
-   * Which part of `output` the signed text is: `$` for the whole output, or a
-   * path such as `$.text`.
+   * The provider's response, byte for byte as served — not re-serialised.
    *
-   * State it rather than leaving it to convention. If it does not resolve to
-   * the signed text the executor records the step as unattested, which is the
-   * correct outcome for an attestation that does not describe the answer.
+   * The signature commits to a digest of these exact bytes, so a
+   * `JSON.parse`/`JSON.stringify` round trip breaks the binding.
+   */
+  readonly responseBody: string;
+  /** Where the answer sits in `responseBody`, e.g. `$.choices[0].message.content`. */
+  readonly responsePath: string;
+  /**
+   * Where that same value sits in your `output`: `$` when the output is the
+   * answer, `$.text` when you wrapped it.
+   *
+   * State both rather than leaving them to convention. If they do not agree,
+   * the executor records the step as unattested — the correct outcome for an
+   * attestation that does not describe the answer.
    */
   readonly outputPath: string;
 }
@@ -166,7 +182,15 @@ export async function handleInvoke(
     if (binding !== null) {
       // A half-filled binding is worse than none: the executor would digest
       // fields a verifier cannot check, and the step would look attested.
-      for (const field of ['chatID', 'model', 'text', 'signature', 'outputPath'] as const) {
+      for (const field of [
+        'chatID',
+        'model',
+        'text',
+        'signature',
+        'responseBody',
+        'responsePath',
+        'outputPath',
+      ] as const) {
         if (typeof binding[field] !== 'string' || binding[field].length === 0) {
           throw new AgentError(
             `attestationBinding.${field} must be a non-empty string`,

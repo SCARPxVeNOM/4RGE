@@ -104,17 +104,25 @@ class AttestationBinding:
     comparison the SDK omits, using ``output_path``.
     """
 
+    #: From the ``ZG-Res-Key`` response header, not the completion id.
     chat_id: str
     model: str
-    #: The text the enclave signed, verbatim.
+    #: The text the enclave signed, verbatim. On 0G Compute this is a
+    #: colon-delimited digest envelope, not the answer. Pass it through
+    #: untouched; the executor checks it commits to ``response_body``.
     text: str
     #: The 65-byte signature, 0x hex, exactly as returned.
     signature: str
-    #: Which part of ``output`` the signed text is: "$" for the whole output,
-    #: or a path such as "$.text". State it rather than leaving it to
-    #: convention -- if it does not resolve to the signed text, the executor
-    #: records the step unattested, which is correct for an attestation that
-    #: does not describe the answer.
+    #: The provider's response, byte for byte as served -- not re-serialised.
+    #: The signature commits to a digest of these exact bytes, so a
+    #: json.loads/json.dumps round trip breaks the binding.
+    response_body: str = ""
+    #: Where the answer sits in ``response_body``.
+    response_path: str = "$"
+    #: Where that same value sits in your ``output``. State both rather than
+    #: leaving them to convention -- if they disagree, the executor records the
+    #: step unattested, which is correct for an attestation that does not
+    #: describe the answer.
     output_path: str = "$"
 
 
@@ -210,7 +218,15 @@ async def handle_invoke(agent: AgentDefinition, body: Any) -> HandlerResult:
             # A half-filled binding is worse than none: the executor would
             # digest fields a verifier cannot check, and the step would look
             # attested while proving nothing.
-            for field_name in ("chat_id", "model", "text", "signature", "output_path"):
+            for field_name in (
+                "chat_id",
+                "model",
+                "text",
+                "signature",
+                "response_body",
+                "response_path",
+                "output_path",
+            ):
                 value = getattr(binding, field_name, None)
                 if not isinstance(value, str) or value == "":
                     raise AgentError(
@@ -235,6 +251,8 @@ async def handle_invoke(agent: AgentDefinition, body: Any) -> HandlerResult:
                     "model": binding.model,
                     "text": binding.text,
                     "signature": binding.signature,
+                    "responseBody": binding.response_body,
+                    "responsePath": binding.response_path,
                     "outputPath": binding.output_path,
                 },
             },

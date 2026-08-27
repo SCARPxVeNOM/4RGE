@@ -75,6 +75,7 @@ export {
   signerFromReportData,
   addressFromReportDataBytes,
   resolveOutputPath,
+  signedTextCommitsTo,
   meetsBinding,
   describeBinding,
   AttestationError,

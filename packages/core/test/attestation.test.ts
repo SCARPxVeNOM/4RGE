@@ -77,19 +77,35 @@ const REGISTRY: AcknowledgedSigner = {
   acknowledged: true,
 };
 
+/**
+ * Builds a bundle whose enclave "answered" `answer`.
+ *
+ * Shaped like a real 0G Compute exchange: the response body is what the
+ * provider served, and the signed text is a digest envelope committing to its
+ * exact bytes — not the answer itself. See zg-compute-binding.test.ts for the
+ * live capture this mirrors.
+ */
 async function bundleFor(
-  text: string,
+  answer: string,
   outputPath = '$.text',
   signer = ENCLAVE,
+  overrides: { responseBody?: string; signedText?: string } = {},
 ): Promise<AttestationBundle> {
+  const responseBody =
+    overrides.responseBody ?? JSON.stringify({ choices: [{ message: { content: answer } }] });
+  const digest = sha256(new TextEncoder().encode(responseBody)).slice(2);
+  const signedText = overrides.signedText ?? `${'aa'.repeat(32)}:${digest}:centralized:test:${'bb'.repeat(32)}`;
+
   return {
     quote: QUOTE,
     provider: PROVIDER,
     response: {
       chatID: 'chat-123',
       model: 'qwen/qwen2.5-omni-7b',
-      text,
-      signature: (await signer.signMessage({ message: text })) as Hex,
+      text: signedText,
+      signature: (await signer.signMessage({ message: signedText })) as Hex,
+      responseBody,
+      responsePath: '$.choices[0].message.content',
       outputPath,
     },
   };
@@ -226,7 +242,7 @@ describe('binding levels', () => {
     expect(result.acknowledgedSigner).toBe(ENCLAVE.address.toLowerCase());
   });
 
-  test('attested, not bound, when the signed text is not the output', async () => {
+  test('attested, not bound, when the output is not what was answered', async () => {
     // THE ATTACK. A genuine attestation, a genuine signature by the very key
     // 0G acknowledges — over a different response. This is exactly what the
     // 0G SDK's own verifySignature accepts, because it only ever checks the
@@ -238,7 +254,7 @@ describe('binding levels', () => {
 
     expect(result.level).toBe('attested');
     expect(result.level).not.toBe('bound');
-    expect(result.notes.join(' ')).toContain('belongs to a different response');
+    expect(result.notes.join(' ')).toContain('not what the signed response carried');
   });
 
   test('present when 0G has not acknowledged the signer', async () => {
@@ -317,12 +333,22 @@ describe('binding levels', () => {
     expect(result.notes.join(' ')).toContain('does not resolve');
   });
 
-  test('binds a whole-output signature via $', async () => {
-    const output = { grade: 95, text: 'ok' };
-    const canonical = '{"grade":95,"text":"ok"}';
-    // Compared against the canonical form, so key order in the stored output
-    // cannot break a genuine binding.
-    expect(check({ bundle: await bundleFor(canonical, '$'), output }).level).toBe('bound');
+  test('attested when the signature does not commit to the stored response', async () => {
+    // A genuine signature over a digest envelope for some other exchange.
+    const result = check({
+      bundle: await bundleFor('text', '$.text', ENCLAVE, {
+        signedText: `${'aa'.repeat(32)}:${'cc'.repeat(32)}:centralized:test:${'bb'.repeat(32)}`,
+      }),
+      output: { text: 'text' },
+    });
+    expect(result.level).toBe('attested');
+    expect(result.notes.join(' ')).toContain('does not commit to the stored response');
+  });
+
+  test('binds a whole output when the answer is the output', async () => {
+    // outputPath '$' when the step's output IS the enclave's answer.
+    const result = check({ bundle: await bundleFor('plain answer', '$'), output: 'plain answer' });
+    expect(result.level).toBe('bound');
   });
 
   test('a malformed signature degrades rather than throwing', async () => {
