@@ -102,3 +102,13 @@ export {
   type RunReport,
   type StatusDecision,
 } from './outcome.js';
+
+export {
+  agentOutputDigest,
+  agentOutputMessageHash,
+  recoverAgentSigner,
+  verifyAgentSignature,
+  AGENT_OUTPUT_DOMAIN,
+  AgentSignatureError,
+  type AgentOutputClaim,
+} from './agent-signature.js';

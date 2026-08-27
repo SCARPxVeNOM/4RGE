@@ -284,5 +284,9 @@ export function toChecksumAddress(address: Hex): Hex {
 
 /** Case-insensitive address comparison, so callers never hand-roll it. */
 export function addressesEqual(a: string, b: string): boolean {
-  return a.replace(/^0x/, '').toLowerCase() === b.replace(/^0x/, '').toLowerCase();
+  // 0X as well as 0x: hexToBytes accepts both, so an address that round-trips
+  // through it can arrive here with either prefix, and a case-sensitive strip
+  // would silently report two spellings of one address as different.
+  const strip = (v: string) => v.replace(/^0[xX]/, '').toLowerCase();
+  return strip(a) === strip(b);
 }
