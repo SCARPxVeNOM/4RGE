@@ -37,12 +37,16 @@ function attestationLabel(step: StepCheck): string {
     case 'verified':
       switch (step.binding?.level) {
         case 'bound':
-          return `attestation: ${TICK} bound to output (Intel chain unchecked)`;
+          // The strongest claim available, and still qualified: revocation and
+          // TCB status need a network the verifier deliberately does not use.
+          return `attestation: ${TICK} TEE-bound to output (revocation/TCB unchecked)`;
         case 'attested':
-          return `attestation: ${CROSS} signed, but not over this output`;
+          return `attestation: ${CROSS} TEE-signed, but not over this output`;
         default:
           // Digest matches; nothing establishes what the document means.
-          return 'attestation: ? present, unbound';
+          return step.binding?.quoteSignatureVerified === true
+            ? 'attestation: ? quote verified, output unbound'
+            : 'attestation: ? present, quote unverified';
       }
     case 'mismatched':
       return `attestation: ${CROSS} digest mismatch`;

@@ -14,6 +14,7 @@ import { describe, expect, test } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { privateKeyToAccount } from 'viem/accounts';
+import { addressReportData, mintQuote } from './helpers/mint-quote.js';
 import {
   AttestationError,
   attestationRefFor,
@@ -52,9 +53,14 @@ const QUOTE = artifact(CAPTURES[0]!.provider);
 const SIGNER = CAPTURES[0]!.expectedSigner;
 
 /**
- * The enclave key. The real one is inside a TEE, so a test key stands in — the
- * property under test is that a signature by the key named in report_data
- * binds, and by any other key does not.
+ * The enclave key. A real one lives inside a TEE, so a test key stands in and
+ * the quote naming it is minted under a throwaway root (see
+ * helpers/mint-quote.ts). The property under test is unchanged: a signature by
+ * the key the *verified* quote names binds, and by any other key does not.
+ *
+ * Note the two different curves. The TDX quote and its PCK chain are P-256;
+ * the key inside report_data is an Ethereum secp256k1 key. Confusing them is
+ * the mistake p256.ts exists to prevent.
  */
 const ENCLAVE = privateKeyToAccount(
   '0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318',
@@ -63,18 +69,25 @@ const IMPOSTER = privateKeyToAccount(
   '0x0123456789012345678901234567890123456789012345678901234567890123',
 );
 
-/** A quote envelope whose report_data names an arbitrary address. */
-function quoteBinding(address: string): string {
-  const parsed = JSON.parse(QUOTE) as Record<string, unknown>;
-  const padded = new Uint8Array(64);
-  const ascii = new TextEncoder().encode(address);
-  padded.set(ascii, 0);
+/** One minted quote, reused: minting generates fresh P-256 keys each time. */
+const MINTED = mintQuote({ reportData: addressReportData(ENCLAVE.address) });
+const TEST_ROOT = MINTED.rootDer;
+
+/** The JSON envelope 0G Compute serves, wrapping a given quote. */
+function envelopeFor(quote: Uint8Array, declaredReportData?: Uint8Array): string {
+  const bytes = declaredReportData ?? MINTED.reportData;
   let binary = '';
-  for (const byte of padded) binary += String.fromCharCode(byte);
-  return JSON.stringify({ ...parsed, report_data: btoa(binary) });
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return JSON.stringify({
+    quote: Buffer.from(quote).toString('hex'),
+    report_data: btoa(binary),
+    tcb_info: '{}',
+    event_log: '[]',
+    vm_config: '{}',
+  });
 }
 
-const ENCLAVE_QUOTE = quoteBinding(ENCLAVE.address);
+const ENCLAVE_QUOTE = envelopeFor(MINTED.quote);
 
 async function bundleFor(
   text: string,
@@ -92,6 +105,10 @@ async function bundleFor(
     },
   };
 }
+
+/** verifyAttestation anchored at the test root rather than Intel's. */
+const check = (input: Parameters<typeof verifyAttestation>[0]) =>
+  verifyAttestation({ trustedRootDer: TEST_ROOT, ...input });
 
 // ---------------------------------------------------------------------------
 
@@ -140,8 +157,8 @@ describe('quote envelope', () => {
     expect(() => parseQuoteEnvelope(selfSigned)).toThrow('not a JSON quote envelope');
   });
 
-  test('rejects an envelope with no report_data', () => {
-    expect(() => parseQuoteEnvelope(JSON.stringify({ quote: 'ab' }))).toThrow('no report_data');
+  test('rejects an envelope with no quote', () => {
+    expect(() => parseQuoteEnvelope(JSON.stringify({ report_data: 'x' }))).toThrow('no quote');
   });
 });
 
@@ -227,12 +244,12 @@ describe('resolveOutputPath', () => {
 
 describe('binding levels', () => {
   test('absent when there is no attestation', () => {
-    const result = verifyAttestation({ bundle: null, output: { text: 'x' } });
+    const result = check({ bundle: null, output: { text: 'x' } });
     expect(result.level).toBe('absent');
   });
 
   test('present when the payload is not a quote envelope', () => {
-    const result = verifyAttestation({
+    const result = check({
       bundle: { quote: btoa('{"kind":"self-signed"}'), response: null },
       output: { text: 'x' },
     });
@@ -241,16 +258,67 @@ describe('binding levels', () => {
   });
 
   test('present when a real quote carries no per-response signature', () => {
-    // This is the state the executor was in before this work: a genuine
-    // attestation that says nothing about the output.
+    // A genuine Intel-verified quote that still says nothing about the output.
+    // Anchored at the real root, because the quote is real.
     const result = verifyAttestation({ bundle: { quote: QUOTE, response: null }, output: { text: 'x' } });
+
+    expect(result.quoteSignatureVerified).toBe(true);
     expect(result.level).toBe('present');
     expect(result.signerAddress).toBe(SIGNER);
     expect(result.notes.join(' ')).toContain('nothing ties this quote to the step output');
   });
 
+  test('present when the quote does not verify, however good the signature is', async () => {
+    // The precondition that makes report_data mean anything. A perfectly
+    // formed response signature over the right output cannot lift a quote
+    // that fails Intel verification.
+    const forged = mintQuote({ reportData: addressReportData(ENCLAVE.address) });
+    const bundle: AttestationBundle = {
+      quote: envelopeFor(forged.quote, forged.reportData),
+      response: {
+        chatID: 'c',
+        model: 'm',
+        text: 'Summary: ok.',
+        signature: (await ENCLAVE.signMessage({ message: 'Summary: ok.' })) as Hex,
+        outputPath: '$.text',
+      },
+    };
+
+    // Anchored at Intel's real root: the minted chain does not reach it.
+    const result = verifyAttestation({ bundle, output: { text: 'Summary: ok.' } });
+    expect(result.quoteSignatureVerified).toBe(false);
+    expect(result.level).toBe('present');
+    expect(result.notes.join(' ')).toContain('report_data establishes nothing');
+  });
+
+  test('present when the envelope names a key the signed quote does not', async () => {
+    // THE ENVELOPE SUBSTITUTION. The JSON report_data field is served
+    // alongside the quote and is not covered by its signature, so an attacker
+    // can keep a genuine quote and rewrite that one field to name a key they
+    // control. The address must come from inside the signed TD report.
+    const attacker = IMPOSTER;
+    const bundle: AttestationBundle = {
+      quote: envelopeFor(MINTED.quote, addressReportData(attacker.address)),
+      response: {
+        chatID: 'c',
+        model: 'm',
+        text: 'Summary: ok.',
+        signature: (await attacker.signMessage({ message: 'Summary: ok.' })) as Hex,
+        outputPath: '$.text',
+      },
+    };
+
+    const result = check({ bundle, output: { text: 'Summary: ok.' } });
+
+    // The signed quote names ENCLAVE, so the attacker's signature does not match.
+    expect(result.signerAddress).toBe(ENCLAVE.address.toLowerCase());
+    expect(result.level).toBe('present');
+    expect(result.notes.join(' ')).toContain('not the key the quote binds');
+    expect(result.notes.join(' ')).toContain("envelope's report_data field disagrees");
+  });
+
   test('bound when the enclave key signed exactly this output', async () => {
-    const result = verifyAttestation({
+    const result = check({
       bundle: await bundleFor('Summary: no critical findings.'),
       output: { text: 'Summary: no critical findings.' },
     });
@@ -264,7 +332,7 @@ describe('binding levels', () => {
     // key — over a different response. This is precisely what the 0G SDK's own
     // verifySignature would accept, because it only ever checks the text the
     // signature endpoint hands back.
-    const result = verifyAttestation({
+    const result = check({
       bundle: await bundleFor('Summary: no critical findings.'),
       output: { text: 'Summary: seventeen critical findings.' },
     });
@@ -275,7 +343,7 @@ describe('binding levels', () => {
   });
 
   test('present when the signature is by a key the quote does not name', async () => {
-    const result = verifyAttestation({
+    const result = check({
       bundle: await bundleFor('text', '$.text', IMPOSTER),
       output: { text: 'text' },
     });
@@ -284,7 +352,7 @@ describe('binding levels', () => {
   });
 
   test('present when the quote names a key the provider never acknowledged', async () => {
-    const result = verifyAttestation({
+    const result = check({
       bundle: await bundleFor('text'),
       output: { text: 'text' },
       acknowledgedSigner: '0x000000000000000000000000000000000000dead',
@@ -294,7 +362,7 @@ describe('binding levels', () => {
   });
 
   test('bound when the acknowledged signer does match', async () => {
-    const result = verifyAttestation({
+    const result = check({
       bundle: await bundleFor('text'),
       output: { text: 'text' },
       acknowledgedSigner: ENCLAVE.address as Hex,
@@ -304,13 +372,13 @@ describe('binding levels', () => {
 
   test('attested when the output is unavailable to compare against', async () => {
     // A verifier that could not fetch the trace must not guess.
-    const result = verifyAttestation({ bundle: await bundleFor('text'), output: null });
+    const result = check({ bundle: await bundleFor('text'), output: null });
     expect(result.level).toBe('attested');
     expect(result.notes.join(' ')).toContain('output unavailable');
   });
 
   test('attested when outputPath does not resolve', async () => {
-    const result = verifyAttestation({
+    const result = check({
       bundle: await bundleFor('text', '$.missing'),
       output: { text: 'text' },
     });
@@ -321,7 +389,7 @@ describe('binding levels', () => {
   test('binds a whole-output signature via $', async () => {
     const output = { grade: 95, text: 'ok' };
     const canonical = '{"grade":95,"text":"ok"}';
-    const result = verifyAttestation({
+    const result = check({
       bundle: await bundleFor(canonical, '$'),
       output,
     });
@@ -332,7 +400,7 @@ describe('binding levels', () => {
 
   test('a malformed signature degrades rather than throwing', async () => {
     const bundle = await bundleFor('text');
-    const result = verifyAttestation({
+    const result = check({
       bundle: { ...bundle, response: { ...bundle.response!, signature: '0xdeadbeef' } },
       output: { text: 'text' },
     });
@@ -341,30 +409,39 @@ describe('binding levels', () => {
   });
 });
 
-describe('the Intel chain is never implied', () => {
-  test('quoteSignatureVerified is false at every level', async () => {
-    const cases = [
-      verifyAttestation({ bundle: null, output: null }),
-      verifyAttestation({ bundle: { quote: QUOTE, response: null }, output: null }),
-      verifyAttestation({ bundle: await bundleFor('t'), output: { text: 't' } }),
-    ];
-    for (const result of cases) expect(result.quoteSignatureVerified).toBe(false);
+describe('quoteSignatureVerified reports a fact, not a hope', () => {
+  test('false when there is no quote at all', () => {
+    expect(check({ bundle: null, output: null }).quoteSignatureVerified).toBe(false);
   });
 
-  test('even a bound result carries the unverified-chain note', async () => {
-    const result = verifyAttestation({
-      bundle: await bundleFor('t'),
-      output: { text: 't' },
-    });
-    expect(result.level).toBe('bound');
-    expect(result.notes.join(' ')).toContain('Intel PCS roots');
+  test('false for a self-signed blob that is not a quote', () => {
+    const blob = btoa(JSON.stringify({ kind: 'reference-agent-self-signed' }));
+    expect(check({ bundle: { quote: blob, response: null }, output: null }).quoteSignatureVerified).toBe(
+      false,
+    );
+  });
+
+  test('true once the chain verifies, at every level from present upward', async () => {
+    const noSignature = check({ bundle: { quote: ENCLAVE_QUOTE, response: null }, output: null });
+    expect(noSignature.level).toBe('present');
+    expect(noSignature.quoteSignatureVerified).toBe(true);
+
+    const bound = check({ bundle: await bundleFor('t'), output: { text: 't' } });
+    expect(bound.level).toBe('bound');
+    expect(bound.quoteSignatureVerified).toBe(true);
+  });
+
+  test('measurements are surfaced for a caller to judge', async () => {
+    const result = check({ bundle: await bundleFor('t'), output: { text: 't' } });
+    expect(result.measurements?.mrtd).toMatch(/^0x[0-9a-f]{96}$/);
+    expect(result.measurements?.rtmr).toHaveLength(4);
   });
 
   test('no description is an unqualified tick', async () => {
-    const result = verifyAttestation({ bundle: await bundleFor('t'), output: { text: 't' } });
+    const result = check({ bundle: await bundleFor('t'), output: { text: 't' } });
     const text = describeBinding(result);
-    expect(text).toContain('Intel chain not checked');
     expect(text).not.toBe('TEE ✓');
+    expect(text.toLowerCase()).toContain('enclave key');
   });
 });
 

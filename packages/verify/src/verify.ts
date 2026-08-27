@@ -67,6 +67,7 @@ export type AttestationState =
 function checkAttestation(
   receipt: AnchoredReceipt,
   trace: ExecutionTrace,
+  trustedRootDer: Uint8Array | undefined,
 ): {
   state: AttestationState;
   binding: AttestationVerification | null;
@@ -128,6 +129,7 @@ function checkAttestation(
         signerAddress: null,
         recoveredAddress: null,
         quoteSignatureVerified: false,
+        measurements: null,
         notes: ['legacy quote-only attestationRef'],
       },
       notes,
@@ -135,7 +137,11 @@ function checkAttestation(
     };
   }
 
-  const binding = verifyAttestation({ bundle, output: trace.output });
+  const binding = verifyAttestation({
+    bundle,
+    output: trace.output,
+    ...(trustedRootDer === undefined ? {} : { trustedRootDer }),
+  });
   notes.push(describeBinding(binding));
   for (const note of binding.notes) notes.push(note);
 
@@ -209,6 +215,16 @@ export interface VerifyOptions {
   readonly identityRegistry: Hex | null;
   /** Flow spec; null skips step 4 and marks it incomplete. */
   readonly spec: SpecForLinkage | null;
+  /**
+   * Trust anchor for TDX quote chains. Defaults to the pinned Intel SGX Root
+   * CA, which is what any real verification should use.
+   *
+   * It can only *re-anchor* verification, never disable it: a quote still
+   * needs a complete, valid chain to whatever root is given. Exposed for an
+   * eventual Intel root rotation, and used by tests to mint structurally
+   * genuine quotes without an actual enclave.
+   */
+  readonly trustedRootDer?: Uint8Array;
 }
 
 interface StepEvidenceRecord {
@@ -357,7 +373,7 @@ export async function verifyRun(options: VerifyOptions): Promise<VerificationRep
             notes.push('required an attestation and did not get one');
           }
         } else {
-          const checked = checkAttestation(receipt, trace);
+          const checked = checkAttestation(receipt, trace, options.trustedRootDer);
           attestation = checked.state;
           binding = checked.binding;
           notes.push(...checked.notes);

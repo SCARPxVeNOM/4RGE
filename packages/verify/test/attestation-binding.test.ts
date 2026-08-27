@@ -14,9 +14,11 @@
  */
 
 import { describe, expect, test } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { privateKeyToAccount } from 'viem/accounts';
+import {
+  addressReportData,
+  mintQuote,
+} from '../../core/test/helpers/mint-quote.js';
 import {
   attestationRefFor,
   canonicalize,
@@ -45,27 +47,28 @@ const ENCLAVE = privateKeyToAccount(
   '0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318',
 );
 
-/** A real captured quote, re-pointed at the test key. */
-const CAPTURED = readFileSync(
-  fileURLToPath(
-    new URL(
-      '../../../artifacts/attestation/0xa48f01287233509fd694a22bf840225062e67836.raw.json',
-      import.meta.url,
-    ),
-  ),
-  'utf8',
-);
+/**
+ * A minted quote naming the test key, under a throwaway root.
+ *
+ * A real enclave key cannot be borrowed, and re-pointing a captured quote's
+ * report_data no longer works — correctly, since that field is not covered by
+ * the quote signature. So the whole structure is built for real and anchored
+ * at a test root, which `verifyRun` accepts as an option. Re-anchoring cannot
+ * weaken anything: the chain must still be complete and valid.
+ */
+const MINTED = mintQuote({ reportData: addressReportData(ENCLAVE.address) });
+const TEST_ROOT = MINTED.rootDer;
 
-function quoteBinding(address: string): string {
-  const parsed = JSON.parse(CAPTURED) as Record<string, unknown>;
-  const padded = new Uint8Array(64);
-  padded.set(new TextEncoder().encode(address), 0);
+function envelopeFor(quote: Uint8Array, reportData: Uint8Array): string {
   let binary = '';
-  for (const byte of padded) binary += String.fromCharCode(byte);
-  return JSON.stringify({ ...parsed, report_data: btoa(binary) });
+  for (const byte of reportData) binary += String.fromCharCode(byte);
+  return JSON.stringify({
+    quote: Buffer.from(quote).toString('hex'),
+    report_data: btoa(binary),
+  });
 }
 
-const QUOTE = quoteBinding(ENCLAVE.address);
+const QUOTE = envelopeFor(MINTED.quote, MINTED.reportData);
 
 const INPUT: JsonValue = { text: 'the findings' };
 const OUTPUT: JsonValue = { text: 'Summary: no critical findings.' };
@@ -180,6 +183,8 @@ function scenario(traceExtras: Record<string, JsonValue | null>, attestationRef:
     traces: new FakeTraces(new Map([[traceRoot.toLowerCase(), trace]])),
     identityRegistry: REGISTRY,
     spec: { steps: [{ id: 'summarize', input: { text: '{{ inputs.text }}' } }], inputs: { text: 'the findings' } },
+    // Anchors the minted chain. Cannot disable verification, only re-point it.
+    trustedRootDer: TEST_ROOT,
   };
 }
 
@@ -199,14 +204,32 @@ describe('an attestation that covers the output', () => {
     expect(report.steps[0]!.binding?.signerAddress).toBe(ENCLAVE.address.toLowerCase());
   });
 
-  test('never claims the Intel chain was checked', async () => {
+  test('reports that the quote chain itself verified', async () => {
     const bundle = await bundleOver('Summary: no critical findings.');
     const report = await verifyRun(
       scenario({ attestationBundle: bundle as unknown as JsonValue }, attestationRefFor(bundle)),
     );
 
+    expect(report.steps[0]!.binding?.quoteSignatureVerified).toBe(true);
+    // Still qualified: what a verified quote does not establish is stated.
+    expect(report.steps[0]!.notes.join(' ')).toContain('revocation');
+  });
+
+  test('a quote that does not reach the trust anchor cannot bind', async () => {
+    // Same bundle, verified against the real Intel root instead. The minted
+    // chain does not reach it, so the level collapses to `present` and the
+    // step is no longer a verifiable success.
+    const bundle = await bundleOver('Summary: no critical findings.');
+    const { trustedRootDer, ...withoutRoot } = scenario(
+      { attestationBundle: bundle as unknown as JsonValue },
+      attestationRefFor(bundle),
+    );
+    void trustedRootDer;
+
+    const report = await verifyRun(withoutRoot);
+    expect(report.steps[0]!.binding?.level).toBe('present');
     expect(report.steps[0]!.binding?.quoteSignatureVerified).toBe(false);
-    expect(report.steps[0]!.notes.join(' ')).toContain('Intel PCS roots');
+    expect(report.steps[0]!.notes.join(' ')).toContain('report_data establishes nothing');
   });
 });
 

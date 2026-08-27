@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { JsonRpcProvider } from 'ethers';
 import { createZGComputeNetworkReadOnlyBroker } from '@0gfoundation/0g-compute-ts-sdk';
 import { GALILEO, requireResolved } from '@0gflow/config';
+import { verifyQuote } from '@0gflow/core';
 
 const RPC_URL = process.env['ZG_RPC_URL'] ?? requireResolved(GALILEO).rpcUrl;
 // Resolved against the repo root, not the CWD: pnpm --filter runs with the
@@ -155,14 +156,29 @@ async function probe(service: ProviderService) {
     console.log(`  signing_address: ${signingAddress}`);
   }
 
-  // The binding that makes the attestation mean anything: the TDX quote's
-  // 64-byte report_data carries the ASCII of the enclave's Ethereum signing
-  // address, zero padded. Surfacing it here is the whole point of the probe.
-  const reportData = obj['report_data'];
-  if (typeof reportData === 'string') {
-    const decoded = Buffer.from(reportData, 'base64');
-    const address = decoded.toString('utf8').replace(/\0+$/, '');
-    console.log(`  report_data: ${decoded.length} bytes, binds address ${address}`);
+  // Verify the quote against the pinned Intel SGX Root CA. Everything else
+  // this tool prints is description; this is the only line that is evidence.
+  const quoteHex = obj['quote'];
+  if (typeof quoteHex === 'string') {
+    const quoteBytes = Uint8Array.from(Buffer.from(quoteHex.replace(/^0x/, ''), 'hex'));
+    const check = verifyQuote(quoteBytes);
+
+    if (check.verified) {
+      console.log(`  quote: VERIFIED to the Intel SGX Root CA (TDX v${check.quoteVersion})`);
+      const m = check.measurements!;
+      console.log(`    mrtd  ${m.mrtd}`);
+      console.log(`    rtmr0 ${m.rtmr[0]}`);
+      // The binding that makes the attestation mean anything: report_data
+      // carries the ASCII of the enclave's Ethereum signing address, and it
+      // is read from inside the *signed* report, never from the envelope's
+      // unauthenticated copy.
+      const address = new TextDecoder().decode(m.reportData).replace(/\0+$/, '');
+      console.log(`    report_data binds ${address}`);
+    } else {
+      console.log('  quote: NOT VERIFIED');
+      for (const failure of check.failures) console.log(`    ✗ ${failure}`);
+    }
+    for (const caveat of check.caveats) console.log(`    note: ${caveat}`);
   }
 
   return { service, raw, digest, parsed };

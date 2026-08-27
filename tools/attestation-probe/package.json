@@ -10,7 +10,8 @@
   "dependencies": {
     "@0gfoundation/0g-compute-ts-sdk": "^0.9.0",
     "ethers": "^6.13.0",
-    "@0gflow/config": "workspace:*"
+    "@0gflow/config": "workspace:*",
+    "@0gflow/core": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.19.2"

@@ -29,26 +29,40 @@
  * This module therefore requires the comparison the SDK omits. That is the
  * whole difference between `attested` and `bound`.
  *
- * WHAT IS NOT CLOSED
+ * THE QUOTE ITSELF
  *
- * The TDX quote's own signature is not verified against Intel's certificate
- * chain — that needs the PCS roots, and §9 keeps the verifier
- * zero-dependency. So `bound` means "the key named in this quote signed this
- * output", not "Intel vouches for the enclave holding that key". The
- * `quoteSignatureVerified` flag is reported as false rather than omitted, so
- * nothing here can be read as an unqualified TEE tick.
+ * report_data only means anything once the quote carrying it is verified — up
+ * to the *pinned* Intel SGX Root CA, not the root the quote helpfully supplies
+ * (see intel-root.ts). Until that chain checks out, report_data is bytes in a
+ * document anyone could have written, so a quote that fails verification caps
+ * the level at `present` however good the response signature looks.
+ *
+ * The address is read from inside the signed TD report. The JSON envelope also
+ * carries a `report_data` field, and that copy is NOT covered by the quote
+ * signature — trusting it would let anyone keep a genuine quote and rewrite
+ * one field to name a key they control.
+ *
+ * WHAT IS STILL NOT ESTABLISHED
+ *
+ * Revocation, TCB status and measurement policy. See tdx.ts; they are reported
+ * as caveats rather than omitted, so `bound` cannot be read as "this enclave is
+ * trustworthy" — only as "Intel's root vouches for an enclave holding this key,
+ * and this key signed this output".
  */
 
 import { canonicalBytes, type JsonValue } from './canonicalize.js';
 import { hexToBytes, sha256, type Hex } from './hash.js';
 import { addressesEqual, recoverMessageAddress } from './secp256k1.js';
+import { parseQuote, verifyQuote, type ParsedQuote, type TdMeasurements } from './tdx.js';
 
 /**
  * How much this attestation actually establishes. Ordered weakest first.
  *
  *   absent    nothing was returned
  *   present   a document was captured; nothing about its meaning is established
- *   attested  a key named in the quote signed some text
+ *             (this is also where a quote that fails Intel verification lands)
+ *   attested  the quote verifies to Intel's root AND the key it names signed
+ *             some text
  *   bound     that key signed *this step's output*
  *
  * Only `bound` makes the attestation load-bearing for a receipt. §1.3 forbids
@@ -97,11 +111,16 @@ export interface AttestationVerification {
   /** The address recovered from the response signature, when there was one. */
   readonly recoveredAddress: Hex | null;
   /**
-   * Always false for now: verifying the quote against Intel's PCS roots is not
-   * implemented. Reported rather than omitted so no caller can print an
-   * unqualified TEE tick.
+   * Whether the TDX quote's own signature chain verified up to the pinned
+   * Intel SGX Root CA. Reported rather than omitted so a caller can never
+   * mistake a digest match for hardware attestation.
+   *
+   * False caps the level at `present`: until the chain checks out, report_data
+   * is just bytes in a document anyone could have written.
    */
-  readonly quoteSignatureVerified: false;
+  readonly quoteSignatureVerified: boolean;
+  /** TD measurements, when a quote was parsed. Reported, never judged. */
+  readonly measurements: TdMeasurements | null;
   /** Why the level is not higher. Empty when `bound`. */
   readonly notes: string[];
 }
@@ -123,19 +142,13 @@ function decodeBase64(value: string): Uint8Array {
 }
 
 /**
- * Reads the signing address out of a TDX quote's `report_data`.
+ * Reads the signing address out of 64 raw `report_data` bytes.
  *
- * Observed on Galileo (docs/attestation-structure.md): 64 bytes, holding the
- * ASCII text of an Ethereum address followed by zero padding. It is not a
- * hash, which is the finding the whole design depends on.
+ * Observed on Galileo (docs/attestation-structure.md): the ASCII text of an
+ * Ethereum address followed by zero padding. It is not a hash, which is the
+ * finding the whole design depends on.
  */
-export function signerFromReportData(reportData: string): Hex {
-  let bytes: Uint8Array;
-  try {
-    bytes = decodeBase64(reportData);
-  } catch {
-    throw new AttestationError('report_data is not valid base64');
-  }
+export function addressFromReportDataBytes(bytes: Uint8Array): Hex {
   if (bytes.length !== 64) {
     throw new AttestationError(`report_data must be 64 bytes, got ${bytes.length}`);
   }
@@ -155,17 +168,50 @@ export function signerFromReportData(reportData: string): Hex {
   return address.toLowerCase() as Hex;
 }
 
+/**
+ * The base64 form, as it appears in the envelope's convenience field.
+ *
+ * Only used to compare that field against the authenticated value. Never call
+ * this to decide who signed something — see `parseQuoteEnvelope`.
+ */
+export function signerFromReportData(reportData: string): Hex {
+  let bytes: Uint8Array;
+  try {
+    bytes = decodeBase64(reportData);
+  } catch {
+    throw new AttestationError('report_data is not valid base64');
+  }
+  return addressFromReportDataBytes(bytes);
+}
+
 export interface QuoteEnvelope {
+  /**
+   * The signing address, read from the *quote's* report_data — never from the
+   * envelope's convenience copy. See `signerFromReportData` for why.
+   */
   readonly signerAddress: Hex;
-  /** TDX quote version, from the header. */
   readonly quoteVersion: number;
   readonly teeType: number;
+  /** The raw TDX quote bytes, for signature verification. */
+  readonly quoteBytes: Uint8Array;
+  /**
+   * True when the envelope's own `report_data` field agrees with the quote.
+   * A disagreement means someone edited the envelope around a genuine quote.
+   */
+  readonly envelopeAgrees: boolean;
 }
 
 /**
  * Parses the JSON envelope 0G Compute serves at /v1/quote. Throws when the
  * payload is not one — a self-signed blob from an ordinary HTTP agent is not
  * a TEE quote, and must not be treated as one.
+ *
+ * The signer comes from inside the quote. The envelope also carries a
+ * base64 `report_data` field, and it is *not covered by the quote signature*:
+ * it is served alongside as a convenience. Reading the address from there
+ * would let anyone keep a genuine quote, rewrite that one field to name a key
+ * they control, and produce a fully "verified" attestation for an output the
+ * enclave never touched.
  */
 export function parseQuoteEnvelope(raw: string): QuoteEnvelope {
   let parsed: unknown;
@@ -179,24 +225,45 @@ export function parseQuoteEnvelope(raw: string): QuoteEnvelope {
   }
 
   const envelope = parsed as Record<string, unknown>;
-  const reportData = envelope['report_data'];
-  if (typeof reportData !== 'string') {
-    throw new AttestationError('attestation envelope has no report_data');
-  }
-  const signerAddress = signerFromReportData(reportData);
-
-  // Header bytes: version at offset 0, TEE type at offset 4, both little
-  // endian. 0x81 is TDX.
-  let quoteVersion = 0;
-  let teeType = 0;
   const quote = envelope['quote'];
-  if (typeof quote === 'string' && quote.length >= 16) {
-    const header = hexToBytes(quote.startsWith('0x') ? quote.slice(0, 18) : `0x${quote.slice(0, 16)}`);
-    quoteVersion = (header[0] ?? 0) | ((header[1] ?? 0) << 8);
-    teeType = (header[4] ?? 0) | ((header[5] ?? 0) << 8);
+  if (typeof quote !== 'string' || quote.length === 0) {
+    throw new AttestationError('attestation envelope has no quote');
   }
 
-  return { signerAddress, quoteVersion, teeType };
+  let quoteBytes: Uint8Array;
+  try {
+    quoteBytes = hexToBytes(quote.startsWith('0x') ? quote : `0x${quote}`);
+  } catch (error) {
+    throw new AttestationError(`quote is not hex: ${(error as Error).message}`);
+  }
+
+  let parsedQuote: ParsedQuote;
+  try {
+    parsedQuote = parseQuote(quoteBytes);
+  } catch (error) {
+    throw new AttestationError(`quote does not parse: ${(error as Error).message}`);
+  }
+
+  const signerAddress = addressFromReportDataBytes(parsedQuote.measurements.reportData);
+
+  // The envelope's copy is compared, never trusted.
+  let envelopeAgrees = false;
+  const declared = envelope['report_data'];
+  if (typeof declared === 'string') {
+    try {
+      envelopeAgrees = addressesEqual(signerFromReportData(declared), signerAddress);
+    } catch {
+      envelopeAgrees = false;
+    }
+  }
+
+  return {
+    signerAddress,
+    quoteVersion: parsedQuote.version,
+    teeType: parsedQuote.teeType,
+    quoteBytes,
+    envelopeAgrees,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -321,6 +388,18 @@ export interface VerifyAttestationInput {
    * could read it. When supplied it must match, or the level is capped.
    */
   readonly acknowledgedSigner?: Hex | null;
+  /**
+   * The trust anchor for the PCK chain. Defaults to the pinned Intel SGX
+   * Root CA and should be left alone outside tests.
+   *
+   * Note this can only *re-anchor* verification, never disable it: a quote
+   * still needs a complete, valid chain to whatever root is given. Tests use
+   * it to mint structurally genuine quotes under a throwaway root, which is
+   * the only way to exercise the success path without an actual enclave.
+   */
+  readonly trustedRootDer?: Uint8Array;
+  /** Evaluate certificate validity at this time. Defaults to now. */
+  readonly at?: Date;
 }
 
 /**
@@ -330,10 +409,10 @@ export interface VerifyAttestationInput {
  */
 export function verifyAttestation(input: VerifyAttestationInput): AttestationVerification {
   const notes: string[] = [];
-  const base = { quoteSignatureVerified: false as const };
+  const unverified = { quoteSignatureVerified: false, measurements: null } as const;
 
   if (input.bundle === null || input.bundle.quote.length === 0) {
-    return { ...base, level: 'absent', signerAddress: null, recoveredAddress: null, notes: [] };
+    return { ...unverified, level: 'absent', signerAddress: null, recoveredAddress: null, notes: [] };
   }
 
   let envelope: QuoteEnvelope;
@@ -343,17 +422,49 @@ export function verifyAttestation(input: VerifyAttestationInput): AttestationVer
     // An ordinary agent's self-signed blob lands here, correctly: it is a
     // document, not a hardware attestation.
     notes.push(`quote not parsed: ${(error as Error).message}`);
-    return { ...base, level: 'present', signerAddress: null, recoveredAddress: null, notes };
+    return { ...unverified, level: 'present', signerAddress: null, recoveredAddress: null, notes };
   }
 
-  if (envelope.teeType !== 0x81) {
-    notes.push(
-      `quote TEE type is 0x${envelope.teeType.toString(16)}, expected 0x81 (TDX)`,
-    );
-  }
+  // The quote's own signature chain. Until this passes, report_data is just
+  // bytes in a document anyone could have written, so no stronger level is
+  // reachable no matter what else checks out.
+  const quoteCheck = verifyQuote(envelope.quoteBytes, {
+    ...(input.trustedRootDer === undefined ? {} : { trustedRootDer: input.trustedRootDer }),
+    ...(input.at === undefined ? {} : { at: input.at }),
+  });
 
   const signerAddress = envelope.signerAddress;
-  notes.push('quote signature not verified against Intel PCS roots (not implemented)');
+
+  if (!quoteCheck.verified) {
+    for (const failure of quoteCheck.failures) notes.push(`quote: ${failure}`);
+    notes.push(
+      'the quote does not verify against the Intel SGX Root CA, so report_data establishes nothing',
+    );
+    return {
+      ...unverified,
+      level: 'present',
+      signerAddress,
+      recoveredAddress: null,
+      quoteSignatureVerified: false,
+      measurements: quoteCheck.measurements,
+      notes,
+    };
+  }
+
+  // From here the quote itself is established, so every remaining return
+  // reports that fact and carries the measurements with it.
+  const base = {
+    quoteSignatureVerified: true,
+    measurements: quoteCheck.measurements,
+  } as const;
+
+  if (!envelope.envelopeAgrees) {
+    // A genuine quote inside an envelope whose convenience field names a
+    // different key: someone edited around the signature.
+    notes.push(
+      "the envelope's report_data field disagrees with the signed quote; the signed value is used",
+    );
+  }
 
   if (
     input.acknowledgedSigner !== undefined &&
@@ -425,8 +536,10 @@ export function verifyAttestation(input: VerifyAttestationInput): AttestationVer
     level: 'bound',
     signerAddress,
     recoveredAddress,
-    // The Intel note stays: `bound` is a claim about the key, not about Intel.
-    notes: notes.filter((n) => n.startsWith('quote signature not verified')),
+    // Notes that survive are the ones still true of a bound result: the
+    // envelope disagreement, if any. The caveats on what a verified quote
+    // does not establish live on the QuoteVerification itself.
+    notes: notes.filter((n) => n.includes("envelope's report_data")),
   };
 }
 
@@ -440,7 +553,10 @@ export function describeBinding(verification: AttestationVerification): string {
     case 'attested':
       return `signed by ${verification.signerAddress ?? 'an enclave key'}, but not tied to this output`;
     case 'bound':
-      return `output signed by the enclave key ${verification.signerAddress ?? ''} (Intel chain not checked)`;
+      return (
+        `output signed by the enclave key ${verification.signerAddress ?? ''}, ` +
+        "attested to Intel's root (revocation and TCB status not checked)"
+      );
     default: {
       const exhaustive: never = verification.level;
       throw new AttestationError(`unhandled level ${String(exhaustive)}`);

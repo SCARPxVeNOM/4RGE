@@ -100,3 +100,25 @@ export {
   type RunReport,
   type StatusDecision,
 } from './outcome.js';
+
+export {
+  parseQuote,
+  verifyQuote,
+  TdxError,
+  type ParsedQuote,
+  type QuoteVerification,
+  type TdMeasurements,
+  type VerifyQuoteOptions,
+} from './tdx.js';
+
+export {
+  INTEL_SGX_ROOT_CA_DER,
+  INTEL_SGX_ROOT_CA_SHA256,
+} from './intel-root.js';
+
+export {
+  parseCertificate,
+  parsePemChain,
+  DerError,
+  type Certificate,
+} from './x509.js';

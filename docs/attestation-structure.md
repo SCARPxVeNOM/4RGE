@@ -1,8 +1,8 @@
 # TEE attestation structure on 0G Compute
 
 **Status:** Phase 1 open item — resolved by observation. The binding gap this
-uncovered is now closed in code; see "The gap this uncovered" below. One piece
-remains open: Intel certificate chain verification.
+uncovered is closed in code, **including Intel certificate chain
+verification**. See "The gap this uncovered" below.
 **Captured:** 2026-08-19, 0G Galileo Testnet (chain 16602), two independent providers.
 **Raw artifacts:** `artifacts/attestation/*.raw.json`
 **Reproduce:** `pnpm --filter @0gflow/attestation-probe probe`
@@ -69,6 +69,11 @@ and `app_compose`.
 
 ### `report_data` — the finding that matters
 
+**Read it from inside the quote, not from this field.** The base64
+`report_data` at the envelope's top level is a convenience copy and is *not*
+covered by the quote signature; the authenticated value lives in the TD report
+at offset 520. See "A hole this work exposed" below.
+
 64 bytes, and it is **not** a hash. It is the ASCII text of an Ethereum
 address, zero-padded to the full 64 bytes:
 
@@ -125,7 +130,7 @@ attestationRef against the raw attestation in the trace") would catch it.
 Closing that requires binding the output to the attested key, in four steps:
 
 1. Verify the TDX quote signature against Intel's certificate chain.
-   *(Establishes the enclave is genuine.)* — **not implemented**, see below.
+   *(Establishes the enclave is genuine.)* — implemented, `verifyQuote`.
 2. Extract the address from `report_data`.
    *(Establishes which key the enclave controls.)* — implemented,
    `signerFromReportData`.
@@ -170,9 +175,12 @@ the last makes an attestation load-bearing.
 | Level | Means | How it is reached |
 |---|---|---|
 | `absent` | nothing was returned | no attestation |
-| `present` | a document exists and is unmodified | digest matches, nothing else established |
-| `attested` | a key named in the quote signed some text | `report_data` parses, signature recovers to that key |
+| `present` | a document exists and is unmodified | digest matches; **also where a quote that fails Intel verification lands** |
+| `attested` | Intel's root vouches for an enclave holding a key, and that key signed some text | quote verifies, signature recovers to the key in the signed `report_data` |
 | `bound` | **that key signed this step's output** | additionally the signed text equals the output at `outputPath` |
+
+Quote verification is a precondition for the top two: until the chain checks
+out, `report_data` is bytes in a document anyone could have written.
 
 `decideStepStatus` takes `requireBinding`, defaulting to `present` — which is
 what `requireAttestation` alone has always meant. A step declaring
@@ -208,40 +216,75 @@ digest exactly — sha256 over the base64-*decoded* attestation, matching what
 was actually anchored — and such receipts are reported as `present`, never
 promoted.
 
-### What is still not proven
+### Quote verification
 
-The TDX quote's own signature is **not** checked against Intel's PCS roots, so:
+`packages/core/src/tdx.ts`, zero dependencies, ~19KB added to the verifier
+bundle. Four checks, all required:
 
-> `bound` means *the key named in this quote signed this output*.
-> It does not mean *Intel vouches for the enclave holding that key*.
+1. **The PCK chain terminates at the pinned Intel SGX Root CA.** Not the root
+   the quote supplies — every quote carries its own, so trusting that one would
+   mean checking a signature against a key the prover chose. The pinned copy is
+   in `intel-root.ts`; it was fetched from Intel's distribution point and is
+   byte-identical to the root inside the live captures. A test asserts it
+   hashes to the documented digest, so a swapped root fails the build.
+2. **The QE report is signed by the PCK leaf key.**
+3. **The QE report commits to the attestation key**:
+   `sha256(attestation_key ‖ qe_auth_data) == qe_report.report_data[0..32]`.
+   Without this the attestation key is unbound and anyone could substitute one.
+4. **The attestation key signed `header ‖ td_report`.**
 
-`quoteSignatureVerified` is reported as `false` rather than omitted, and no
-code path prints an unqualified TEE tick. The verifier previously printed
-`attestation: TEE ✓` on a mere digest match; it now prints the level, and even
-`bound` reads `bound to output (Intel chain unchecked)`.
+Both captured quotes verify. Flipping a byte in any security-relevant field
+breaks it; PEM whitespace and the trailing padding after the declared chain
+length are not covered by the quote signature, which is fine because
+`attestationRef` digests the whole document.
+
+The curve is **P-256**, not secp256k1 — different `a` coefficient, so the point
+arithmetic differs and a shared implementation would silently produce points
+off the curve. `p256.ts` is separate from `secp256k1.ts` for that reason.
+
+### A hole this work exposed
+
+While wiring quote verification in, the signer address was being read from the
+envelope's JSON `report_data` field. **That field is not covered by the quote
+signature** — it is served alongside as a convenience. An attacker could keep a
+genuine quote and rewrite that one field to name a key they control, reaching
+`bound` for an output the enclave never touched.
+
+The address now comes from inside the signed TD report. When the envelope's
+copy disagrees, that is reported. A test covers the substitution.
+
+Quote verification is also a **precondition** for `attested` and `bound`: until
+the chain checks out, `report_data` is bytes in a document anyone could have
+written, so a quote that fails verification caps the level at `present`
+regardless of how good the response signature looks.
+
+### What a verified quote still does not establish
+
+Reported in `caveats`, never omitted:
+
+- **Revocation.** CRLs live behind Intel's PCS and §9 keeps the verifier
+  offline and dependency-free. A revoked-but-unexpired PCK still passes.
+- **TCB status.** Evaluating it needs Intel's signed TCB info, another network
+  fetch. A quote from an out-of-date platform verifies.
+- **Measurement policy.** Whether *this* `mrtd`/`rtmr` set is the software you
+  expected is a policy decision, not a cryptographic one. The measurements are
+  returned so a caller can judge.
+
+So `bound` means: *Intel's root vouches for an enclave holding this key, and
+this key signed this output.* It does not mean the enclave is trustworthy.
+
+No code path prints an unqualified TEE tick. The verifier previously printed
+`attestation: TEE ✓` on a mere digest match; it now prints
+`TEE-bound to output (revocation/TCB unchecked)`.
 
 ---
 
 ## Degradation path
 
 §13 anticipates the format being unparseable and calls for degrading to
-"present and unmodified" with explicit labelling. Concretely, the executor
-should record which level it achieved:
-
-| Level | Meaning | Receipt status |
-|---|---|---|
-| `bound` | steps 1–4 all pass | `ok` |
-| `attested` | quote verified, signer acknowledged, no response signature | `ok` only if the flow did not require binding |
-| `present` | blob captured, quote not verified | `unattested` when `requireAttestation` |
-| `absent` | nothing returned | `unattested` when `requireAttestation` |
-
-Per §1.3 the middle rows must never be silently promoted to `ok`. The status
-decision belongs in `decideStepStatus`, which is already the only place a
-success status can be produced (`packages/core/src/outcome.ts`).
-
----
-
-## Degradation path in practice
+"present and unmodified" with explicit labelling. That is what the levels do,
+and `decideStepStatus` is where the mapping lives — the only place a success
+status can be produced (`packages/core/src/outcome.ts`).
 
 `decideStepStatus` maps the level to a status. Nothing may promote a weaker
 level than the flow asked for:
@@ -262,11 +305,10 @@ catch, and it must not pass.
 
 ## Still open
 
-1. **Intel certificate chain verification.** Not implemented. The verifier CLI
-   is zero-dependency (§9) and full TDX quote verification needs Intel's PCS
-   roots. Vendoring them is the remaining work; until then the output says the
-   chain was not checked rather than implying it was. This is the one
-   outstanding piece of the four-step plan.
+1. **Revocation and TCB status.** Both need Intel's PCS over the network,
+   which §9's offline verifier will not do. The honest options are an
+   optional online mode or periodically vendored CRL/TCB snapshots; neither is
+   built. Reported as caveats meanwhile.
 2. **`chatID` provenance.** The binding requires it. An agent fronting 0G
    Compute must return it in `attestationBinding`; the adapter SDKs expose the
    field and reject a partially-filled binding, but no reference agent yet
