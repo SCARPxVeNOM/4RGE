@@ -1,0 +1,16 @@
+{
+  "name": "@0gflow/tee-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "An agent fronting 0G Compute that returns a real attestation binding",
+  "type": "module",
+  "exports": { ".": "./src/serve.ts", "./agent": "./src/agent.ts" },
+  "main": "./src/serve.ts",
+  "dependencies": {
+    "@0gflow/adapter-sdk": "workspace:*",
+    "@0gflow/config": "workspace:*",
+    "@0gfoundation/0g-compute-ts-sdk": "^0.9.0",
+    "ethers": "^6.13.0"
+  },
+  "devDependencies": { "tsx": "^4.19.2" }
+}

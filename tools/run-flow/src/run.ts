@@ -15,12 +15,14 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import type { AddressInfo } from 'node:net';
-import { GALILEO } from '@0gflow/config';
+import { GALILEO, requireAddress } from '@0gflow/config';
 import { keccak256, StepStatus, type Hex } from '@0gflow/core';
 import { executeRun, LocalTraceStore, ViemChainWriter } from '@0gflow/executor';
 import { ZgStorageTraceStore } from '@0gflow/storage';
+import { ViemSignerRegistry } from '@0gflow/executor';
+import { createTeeAgentServer } from '@0gflow/tee-agent';
 import { createAgentServer } from '@0gflow/reference-agents';
-import { SCENARIOS, SCENARIOS_BY_KEY, type Scenario } from './flows.js';
+import { BOUND_SCENARIO, SCENARIOS, SCENARIOS_BY_KEY, type Scenario } from './flows.js';
 
 const ARTIFACTS = fileURLToPath(new URL('../../../artifacts', import.meta.url));
 const RUN_DIR = `${ARTIFACTS}/runs`;
@@ -72,6 +74,7 @@ async function runScenario(
   agentBase: string,
   chain: ViemChainWriter,
   traces: Awaited<ReturnType<typeof chooseTraceStore>>,
+  teeBase: string | null,
 ) {
   const runId = keccak256(randomBytes(32)) as Hex;
 
@@ -87,7 +90,22 @@ async function runScenario(
     runId,
     chain,
     traces,
-    endpointFor: (step) => `${agentBase}/agents/${scenario.agentFor[step.id] ?? step.id}`,
+    endpointFor: (step) => {
+      const agent = scenario.agentFor[step.id] ?? step.id;
+      // 'tee' is the 0G Compute agent on its own server, not a reference agent.
+      if (agent === 'tee') {
+        if (teeBase === null) throw new Error('the tee agent was not started');
+        return teeBase;
+      }
+      return `${agentBase}/agents/${agent}`;
+    },
+    // Resolves each provider's acknowledged TEE signer from 0G's registry.
+    // Without it a binding has nothing to be checked against and the step
+    // could reach no more than `present`.
+    signers: new ViemSignerRegistry({
+      rpcUrl: GALILEO.rpcUrl,
+      inferenceServing: requireAddress(GALILEO, 'inferenceServing'),
+    }),
     // Off, so a failure does not mask what the rest of the run would have
     // done; the skip then demonstrably comes from the dependency, not a
     // global halt.
@@ -162,6 +180,17 @@ async function main() {
   await new Promise<void>((resolve) => agents.listen(0, '127.0.0.1', resolve));
   const agentBase = `http://127.0.0.1:${(agents.address() as AddressInfo).port}`;
 
+  // The `bound` scenario needs a live enclave, so its agent is only started
+  // when that scenario was asked for — every other run stays free of a paid
+  // 0G Compute dependency.
+  let tee: Awaited<ReturnType<typeof createTeeAgentServer>> | null = null;
+  let teeBase: string | null = null;
+  if (keys.includes('bound')) {
+    tee = await createTeeAgentServer({ rpcUrl: GALILEO.rpcUrl, privateKey: privateKey! });
+    await new Promise<void>((resolve) => tee!.server.listen(0, '127.0.0.1', resolve));
+    teeBase = `http://127.0.0.1:${(tee.server.address() as AddressInfo).port}`;
+  }
+
   const chain = new ViemChainWriter({ network: GALILEO, privateKey: privateKey! });
 
   console.log('0G Flow — live execution');
@@ -169,6 +198,12 @@ async function main() {
   console.log(`executor ${chain.executorAddress}`);
   console.log(`balance  ${Number(await chain.balance()) / 1e18} ${GALILEO.nativeToken}`);
   console.log(`agents   ${agentBase}`);
+  if (tee !== null) {
+    console.log(`tee      ${teeBase}`);
+    console.log(`         provider ${tee.provider}`);
+    console.log(`         signer   ${tee.teeSigner} (acknowledged on chain)`);
+    console.log(`         model    ${tee.model}`);
+  }
 
   const traces = await chooseTraceStore();
 
@@ -176,11 +211,18 @@ async function main() {
   try {
     for (const key of keys) {
       const scenario = SCENARIOS_BY_KEY.get(key)!;
-      const { runId, result } = await runScenario(scenario, agentBase, chain, traces);
+      const { runId, result } = await runScenario(
+        scenario,
+        agentBase,
+        chain,
+        traces,
+        teeBase,
+      );
       completed.push({ key, runId, outcome: result.outcome });
     }
   } finally {
     await new Promise<void>((resolve) => agents.close(() => resolve()));
+    if (tee !== null) await new Promise<void>((resolve) => tee!.server.close(() => resolve()));
   }
 
   console.log(`\n${'='.repeat(72)}`);
@@ -197,6 +239,9 @@ async function main() {
   // was built to demonstrate, is a failure of this harness.
   const expected: Record<string, number> = {
     success: StepStatus.Ok,
+    // The point of the scenario: a real enclave signature that covers the
+    // output must anchor ok, not unattested.
+    bound: StepStatus.Ok,
     unattested: StepStatus.Unattested,
     failure: StepStatus.Failed,
   };

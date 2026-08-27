@@ -77,11 +77,44 @@ describe('handleInvoke', () => {
     };
     const attesting: AgentDefinition = {
       ...echo,
-      invoke: () => ({ output: { text: 'Summary: ok.' }, attestation: 'quote', attestationBinding: binding }),
+      invoke: () => ({
+        output: { text: 'Summary: ok.' },
+        attestation: 'quote',
+        attestationProvider: '0x00000000000000000000000000000000000000a1',
+        attestationBinding: binding,
+      }),
     };
 
     const result = await handleInvoke(attesting, request({ text: 'x' }));
     expect(body(result)['attestationBinding']).toEqual(binding);
+    expect(body(result)['attestationProvider']).toBe('0x00000000000000000000000000000000000000a1');
+  });
+
+  it('rejects a binding with no provider to attribute it to', async () => {
+    // The executor reads the acknowledged TEE signer for a *provider*. Without
+    // one there is nothing to check the signature against, so the step could
+    // never rise above `present` — better to say so than to anchor it.
+    const orphan: AgentDefinition = {
+      ...echo,
+      invoke: () => ({
+        output: { text: 'x' },
+        attestation: 'quote',
+        attestationBinding: {
+          chatID: 'c',
+          model: 'm',
+          text: 't',
+          signature: '0xab',
+          responseBody: '{}',
+          responsePath: '$',
+          outputPath: '$',
+        },
+      }),
+    };
+
+    const result = await handleInvoke(orphan, request({ text: 'x' }));
+    expect(result.status).toBe(500);
+    expect(errorOf(result).code).toBe('bad-binding');
+    expect(errorOf(result).message).toContain('attestationProvider');
   });
 
   it('reports an explicit null binding, so absent and lost are distinguishable', async () => {
@@ -115,7 +148,12 @@ describe('handleInvoke', () => {
       const broken: AgentDefinition = {
         ...echo,
         invoke: () =>
-          ({ output: { text: 't' }, attestation: 'q', attestationBinding: binding }) as never,
+          ({
+            output: { text: 't' },
+            attestation: 'q',
+            attestationProvider: '0x00000000000000000000000000000000000000a1',
+            attestationBinding: binding,
+          }) as never,
       };
 
       const result = await handleInvoke(broken, request({ text: 'x' }));

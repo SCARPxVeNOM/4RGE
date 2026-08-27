@@ -23,3 +23,5 @@ export {
 export { ViemChainWriter, ChainError, type ViemChainWriterOptions } from './chain.js';
 export { LocalTraceStore } from './traces.js';
 export { FLOW_REGISTRY_ABI, EXECUTION_RECEIPTS_ABI } from './abi.js';
+
+export { ViemSignerRegistry, type ViemSignerRegistryOptions } from './signers.js';

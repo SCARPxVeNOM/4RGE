@@ -124,6 +124,14 @@ export interface AgentResponse {
    * level a step can reach is `present`.
    */
   readonly attestationBinding?: AttestationBinding | null;
+  /**
+   * The 0G provider whose acknowledged TEE signer produced the binding.
+   *
+   * The executor reads *this* address's signer from the InferenceServing
+   * contract, so without it there is nothing to check the signature against
+   * and the step cannot rise above `present` however good the signature is.
+   */
+  readonly attestationProvider?: string | null;
 }
 
 export interface AgentDefinition {
@@ -179,6 +187,16 @@ export async function handleInvoke(
     }
 
     const binding = result.attestationBinding ?? null;
+    if (binding !== null && result.attestationProvider == null) {
+      // A binding nobody can attribute to a provider is unverifiable: the
+      // executor would have no registry entry to check the signature against.
+      throw new AgentError(
+        'attestationBinding was supplied without attestationProvider, so nothing could verify it',
+        'bad-binding',
+        false,
+        500,
+      );
+    }
     if (binding !== null) {
       // A half-filled binding is worse than none: the executor would digest
       // fields a verifier cannot check, and the step would look attested.
@@ -208,6 +226,7 @@ export async function handleInvoke(
         output: result.output,
         attestation: result.attestation ?? null,
         attestationBinding: binding === null ? null : { ...binding },
+        attestationProvider: result.attestationProvider ?? null,
       },
     };
   } catch (error) {

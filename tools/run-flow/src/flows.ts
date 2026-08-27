@@ -88,6 +88,33 @@ const FAILING: FlowSpec = {
   ],
 };
 
+/**
+ * A step whose attestation must actually cover its output.
+ *
+ * `requireBinding: 'bound'` is the strong form: an attestation that merely
+ * exists, or that is signed by the right key over some *other* response, is
+ * anchored status 3 rather than 0. Served by the 0G Compute agent, so the
+ * signature comes from a live enclave.
+ */
+const REQUIRES_BINDING: FlowSpec = {
+  version: '0gflow/1',
+  name: 'audit-summarize-bound',
+  inputs: { repoUrl: { type: 'string' } },
+  steps: [
+    { id: 'audit', agent: '1', input: { repo: '{{ inputs.repoUrl }}' } },
+    {
+      id: 'summarize',
+      agent: '1',
+      needs: ['audit'],
+      requireAttestation: true,
+      requireBinding: 'bound',
+      // The enclave can be slow, and a retry needs fresh billing headers.
+      timeoutMs: 120_000,
+      input: { text: '{{ steps.audit.output.report }}' },
+    },
+  ],
+};
+
 const INPUTS: JsonValue = { repoUrl: 'https://github.com/0glabs/0g-chain' };
 
 export const SCENARIOS: Scenario[] = [
@@ -117,4 +144,20 @@ export const SCENARIOS: Scenario[] = [
   },
 ];
 
-export const SCENARIOS_BY_KEY = new Map(SCENARIOS.map((s) => [s.key, s]));
+export const BOUND_SCENARIO: Scenario = {
+  key: 'bound',
+  description: 'a step requires its attestation to cover its output, served by a real enclave',
+  spec: REQUIRES_BINDING,
+  inputs: INPUTS,
+  // 'tee' is served by @0gflow/tee-agent, not by the reference agents.
+  agentFor: { audit: 'audit', summarize: 'tee' },
+  expect: 'summarize anchored status 0 with binding level bound; run outcome 0',
+};
+
+/**
+ * `bound` is registered but kept out of `SCENARIOS`, so `all` does not
+ * silently spend on paid inference. Ask for it by name.
+ */
+export const SCENARIOS_BY_KEY = new Map(
+  [...SCENARIOS, BOUND_SCENARIO].map((s) => [s.key, s]),
+);

@@ -1,0 +1,59 @@
+{
+  "scenario": "bound",
+  "description": "a step requires its attestation to cover its output, served by a real enclave",
+  "network": "galileo",
+  "chainId": 16602,
+  "runId": "0x17f361c5b5ce1cedfc222b15a94d0b4016269f1838b74b4a930709ad0a133fe7",
+  "flowId": "0xbd9acf04d8642677dd359e673af16bf5571539671af59728e2c4d9696d4d19ed",
+  "chainRoot": "0xa6a78e530ca7d743d53f2c93909bd140105af06cef08b6f939881c3e95e8e4f2",
+  "outcome": 0,
+  "succeeded": true,
+  "executor": "0x3274E860FA4d3372bD120b61367a7555713417A8",
+  "spec": {
+    "steps": [
+      {
+        "id": "audit",
+        "agent": "1",
+        "input": {
+          "repo": "{{ inputs.repoUrl }}"
+        }
+      },
+      {
+        "id": "summarize",
+        "agent": "1",
+        "needs": [
+          "audit"
+        ],
+        "requireAttestation": true,
+        "requireBinding": "bound",
+        "timeoutMs": 120000,
+        "input": {
+          "text": "{{ steps.audit.output.report }}"
+        }
+      }
+    ]
+  },
+  "runInputs": {
+    "repoUrl": "https://github.com/0glabs/0g-chain"
+  },
+  "stepResults": [
+    {
+      "stepId": "audit",
+      "stepIndex": 0,
+      "status": 0,
+      "statusName": "ok",
+      "traceRoot": "0x23add61cff038bcc70ef57d2ccd86a63b4ecc34feb156f98d4958533cf73a0e5",
+      "txHash": "0xf9c7ac32d9f7a58ad99f2ffdd9293861f5af67268eed28df171a95c10db04d7e",
+      "error": null
+    },
+    {
+      "stepId": "summarize",
+      "stepIndex": 1,
+      "status": 0,
+      "statusName": "ok",
+      "traceRoot": "0x3b20069bf82e7b9b32db6ce49a9a1bcb8a2945b983f4a67a24020526153f8f9d",
+      "txHash": "0x4eb110ff4bdecf1b9e7ec22023ea385da689721d3955621cedbb6d24ba9903f8",
+      "error": null
+    }
+  ]
+}

@@ -9,10 +9,18 @@ Storage with Merkle inclusion proofs.
 **Cost:** 0.0185 A0GI for three runs — nine anchored steps, three seals and
 nine trace uploads to 0G Storage.
 
-Three runs, because one success proves less than a success plus the two ways a
-run is allowed to *not* succeed. §10.4 asks for a deliberately failed run that
-is still sealed and verifiable; §1.3 asks that a missing attestation is
-recorded as `unattested` rather than quietly as `ok`.
+Four runs. One success proves less than a success plus the two ways a run is
+allowed to *not* succeed: §10.4 asks for a deliberately failed run that is
+still sealed and verifiable, and §1.3 asks that a missing attestation is
+recorded as `unattested` rather than quietly as `ok`. The fourth exercises
+`requireBinding: 'bound'` against a live enclave.
+
+`bound` is not in `all`, because it spends on paid inference. Ask for it by
+name:
+
+```
+ZG_PRIVATE_KEY=… pnpm --filter @0gflow/run-flow flow -- bound
+```
 
 Reproduce:
 
@@ -33,6 +41,7 @@ Read back with raw `eth_getLogs`, independently of any code in this repo:
 | success | `0x1daea014…1608f387` | 4 | 51683572 | `0` ok | VERIFIED |
 | unattested | `0x6053574e…a35d7ace4` | 2 | 51683752 | `3` unattested | VERIFIED |
 | failure | `0xfd8f562f…ba292ce4` | 3 | 51683998 | `1` failed | VERIFIED |
+| **bound** | `0x17f361c5…0a133fe7` | 2 | 51712841 | `0` ok | VERIFIED |
 
 Chain roots, as sealed:
 
@@ -90,6 +99,58 @@ Note the chain root still matches: only the trace was altered, not the
 anchored receipt. The two checks are independent, and the linkage collapse
 from 4/4 to 1/4 is §4.1 doing its job — one tampered output invalidates every
 downstream input derived from it.
+
+---
+
+## The `bound` run, end to end against a real enclave
+
+`tools/tee-agent` fronts 0G Compute and is built on `@0gflow/adapter-sdk` — if
+the SDK made §6.1 awkward to satisfy, it would show up there first. The step
+declares `requireAttestation: true` and `requireBinding: 'bound'`, so an
+attestation that merely exists is not enough.
+
+The executor resolves the provider's acknowledged TEE signer from 0G's
+InferenceServing registry (`ViemSignerRegistry`), and the verifier resolves it
+again independently over the same RPC it already uses for receipts:
+
+```
+[1] summarize  id ✓  trace ✓  hashes ✓
+    attestation: ✓ bound to output by 0G-acknowledged TEE signer
+    — output signed by the TEE signer 0G acknowledges
+      (0x83df4b8eba7c0b3b740019b8c9a77fff77d508cf)
+
+VERIFIED — 2 steps · 1 agent          (exit 0)
+```
+
+### The guard bites
+
+Replacing the answer in the trace with one the enclave never gave — leaving the
+attestation bundle untouched — fires **two independent defences**:
+
+```
+[1] summarize  hashes ✗  attestation: ✗ TEE-signed, but not over this output
+
+✗ step 1: the stored output hashes to 0x226ad5f7… but the receipt anchors
+          outputHash 0x84cfbdb4…
+✗ step 1: the attestation is signed by the attested enclave key but does not
+          cover this step output, so it belongs to a different response
+
+FAILED — 3 checks did not pass
+```
+
+The hash check and the binding check are independent: even a substitution that
+somehow satisfied the first would still not be covered by the enclave's
+signature. That is the whole point of binding, shown on a real run rather than
+a fixture.
+
+### One honest caveat
+
+This agent is **not deterministic** — a language model answers differently to
+the same prompt, so `@0gflow/conform`'s determinism check fails against it, and
+correctly so. Determinism matters for re-deriving a *downstream* step's input,
+and §9 re-derives that from the recorded trace rather than by re-running the
+agent, so a verified run stays verified. A flow that needs a reproducible
+output should not put an LLM in the middle of it.
 
 ---
 

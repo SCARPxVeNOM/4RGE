@@ -12,7 +12,8 @@
     "@0gflow/core": "workspace:*",
     "@0gflow/executor": "workspace:*",
     "@0gflow/reference-agents": "workspace:*",
-    "@0gflow/storage": "workspace:*"
+    "@0gflow/storage": "workspace:*",
+    "@0gflow/tee-agent": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.19.2"
