@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "zgflow"
+version = "1.0.0"
+description = "0G Flow Python SDK: RFC 8785 canonicalisation, receipt hashing, and the agent adapter contract"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+# No runtime dependencies. An agent author should not inherit a dependency tree
+# to hash a JSON object, and every third-party package is another way for the
+# canonical form to drift from the frozen vectors.
+dependencies = []
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Topic :: Security :: Cryptography",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/zgflow"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

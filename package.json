@@ -10,7 +10,8 @@
     "test": "pnpm --filter @0gflow/verify build && vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -b --force && tsc --noEmit -p apps/explorer",
-    "test:contracts": "forge test --root contracts"
+    "test:contracts": "forge test --root contracts",
+    "test:python": "python -m pytest packages/python-sdk/tests -q"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

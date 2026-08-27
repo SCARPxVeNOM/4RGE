@@ -16,3 +16,10 @@ contracts/broadcast/
 # Captured attestations under artifacts/ ARE committed: they are the evidence
 # behind docs/attestation-structure.md and the fixtures its tests run against.
 apps/*/dist/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+.venv/
