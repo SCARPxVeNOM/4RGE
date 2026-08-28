@@ -1,6 +1,27 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "rootDir": "./src", "outDir": "./dist" },
-  "include": ["src/**/*.ts"],
-  "references": [{ "path": "../core" }, { "path": "../config" }, { "path": "../indexer" }]
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist"
+  },
+  "include": [
+    "src/**/*.ts"
+  ],
+  "references": [
+    {
+      "path": "../config"
+    },
+    {
+      "path": "../conform"
+    },
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../indexer"
+    },
+    {
+      "path": "../storage"
+    }
+  ]
 }
