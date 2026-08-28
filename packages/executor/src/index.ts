@@ -29,3 +29,9 @@ export { FLOW_REGISTRY_ABI, EXECUTION_RECEIPTS_ABI } from './abi.js';
 
 export { ViemSignerRegistry, type ViemSignerRegistryOptions } from './signers.js';
 export { ViemAgentRegistry, type ViemAgentRegistryOptions } from './agents.js';
+export {
+  ViemAdapterRegistry,
+  type AdapterResolver,
+  type ResolvedAdapter,
+  type ViemAdapterRegistryOptions,
+} from './adapters.js';

@@ -123,6 +123,24 @@ importers:
         specifier: ^4.19.2
         version: 4.23.12
 
+  packages/publish:
+    dependencies:
+      '@0gflow/config':
+        specifier: workspace:*
+        version: link:../config
+      '@0gflow/conform':
+        specifier: workspace:*
+        version: link:../conform
+      '@0gflow/core':
+        specifier: workspace:*
+        version: link:../core
+      '@0gflow/storage':
+        specifier: workspace:*
+        version: link:../storage
+      viem:
+        specifier: ^2.21.0
+        version: 2.55.19(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)
+
   packages/storage:
     dependencies:
       '@0gflow/core':
@@ -177,6 +195,12 @@ importers:
       '@0gflow/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@0gflow/executor':
+        specifier: workspace:*
+        version: link:../../packages/executor
+      '@0gflow/storage':
+        specifier: workspace:*
+        version: link:../../packages/storage
       viem:
         specifier: ^2.21.0
         version: 2.55.19(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)

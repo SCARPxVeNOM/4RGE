@@ -1,0 +1,20 @@
+{
+  "name": "@0gflow/publish",
+  "version": "1.0.0",
+  "description": "Publish an agent to the 0G Flow marketplace: mint an identity, prove conformance, and list it on chain.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": { "publish": "./dist/cli.js" },
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "files": ["dist"],
+  "scripts": { "build": "tsc -b" },
+  "dependencies": {
+    "@0gflow/config": "workspace:*",
+    "@0gflow/conform": "workspace:*",
+    "@0gflow/core": "workspace:*",
+    "@0gflow/storage": "workspace:*",
+    "viem": "^2.21.0"
+  },
+  "license": "MIT"
+}

@@ -18,6 +18,7 @@
     { "path": "packages/executor" },
     { "path": "packages/indexer" },
     { "path": "packages/explorer-api" },
-    { "path": "packages/verify" }
+    { "path": "packages/verify" },
+    { "path": "packages/publish" }
   ]
 }

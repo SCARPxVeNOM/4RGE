@@ -399,9 +399,12 @@ export async function verifyRun(options: VerifyOptions): Promise<VerificationRep
         // Step 5: attestation.
         if (receipt.attestationRef === ZERO_BYTES32) {
           attestation = 'not-required';
-          if (receipt.status === StepStatus.Unattested) {
-            notes.push('required an attestation and did not get one');
-          }
+          // Deliberately no note here about why the step is Unattested. With
+          // agent signatures there are now two things a step can require, and
+          // a zero attestationRef does not say which one was missing —
+          // asserting "required an attestation" would be a guess, and it was
+          // wrong for every signature-only step. The identity check below
+          // names the actual reason when it is the identity.
         } else {
           // The trust anchor comes from chain, over the same RPC used for
           // receipts. Read per step, so a de-acknowledged signer stops
@@ -433,9 +436,6 @@ export async function verifyRun(options: VerifyOptions): Promise<VerificationRep
         const signature = trace.outputIdentity?.signature ?? null;
         if (signature === null) {
           outputIdentity = 'absent';
-          if (receipt.status === StepStatus.Unattested) {
-            notes.push('required a signed output and did not get one');
-          }
         } else if (agentIdentity === undefined || chain.agentSigner === undefined) {
           outputIdentity = 'unchecked';
           incomplete.push(
@@ -484,6 +484,19 @@ export async function verifyRun(options: VerifyOptions): Promise<VerificationRep
       } catch (error) {
         hashesMatch = false;
         failures.push(`step ${receipt.stepIndex}: ${(error as Error).message}`);
+      }
+    }
+
+    // Why this step is not a success, said once and only from what is known.
+    if (receipt.status === StepStatus.Unattested) {
+      if (outputIdentity === 'unconfirmed') {
+        notes.push('anchored unattested: the agent named here did not sign this output');
+      } else if (outputIdentity === 'absent' && attestation === 'not-required') {
+        notes.push(
+          'anchored unattested: neither an attestation nor an agent signature was recorded',
+        );
+      } else if (attestation !== 'not-required') {
+        notes.push('anchored unattested: the required attestation did not hold');
       }
     }
 

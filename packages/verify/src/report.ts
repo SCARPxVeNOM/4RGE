@@ -32,8 +32,13 @@ const short = (hex: string, keep = 6): string =>
 function attestationLabel(step: StepCheck): string {
   switch (step.attestation) {
     case 'not-required':
+      // A zero attestationRef means no attestation was anchored. It does NOT
+      // say one was required: since agent signatures exist, a step can be
+      // Unattested because its identity went unproven instead. Inferring
+      // "required but absent" from the status alone was wrong for every
+      // signature-only step. The note on the step names the actual reason.
       return step.status === StepStatus.Unattested
-        ? `attestation: ${CROSS} required but absent`
+        ? `attestation: ${CROSS} none anchored`
         : 'attestation: not required';
     case 'verified':
       switch (step.binding?.level) {

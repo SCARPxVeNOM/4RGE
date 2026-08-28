@@ -1,0 +1,17 @@
+{
+  "version": "0gflow/1",
+  "name": "marketplace-audit",
+  "inputs": {
+    "repoUrl": "https://github.com/0glabs/0g-chain"
+  },
+  "steps": [
+    {
+      "id": "audit",
+      "agent": "12",
+      "input": {
+        "repo": "{{ inputs.repoUrl }}"
+      },
+      "requireSignedOutput": true
+    }
+  ]
+}

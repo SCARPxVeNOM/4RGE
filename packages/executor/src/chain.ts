@@ -38,6 +38,16 @@ export interface ViemChainWriterOptions {
    * under it, so an explicit price is required rather than optional.
    */
   readonly gasPrice?: bigint;
+  /**
+   * Anchor to a different receipts contract than the network default.
+   *
+   * v1 and v2 are both deployed and both live, so which one a run anchors to
+   * is a per-run choice rather than a property of the network. The address is
+   * also what an agent's signature commits to, so it must be the same value
+   * the executor hands to agents — which is why it lives here, on the object
+   * that already knows it, rather than being passed separately.
+   */
+  readonly receiptsContract?: Hex;
 }
 
 const DEFAULT_GAS_PRICE = 5_000_000_000n;
@@ -67,7 +77,9 @@ export class ViemChainWriter implements ChainWriter {
   constructor(options: ViemChainWriterOptions) {
     const network = requireResolved(options.network);
     this.flowRegistry = hx(requireAddress(network, 'flowRegistry'));
-    this.executionReceipts = hx(requireAddress(network, 'executionReceipts'));
+    this.executionReceipts = hx(
+      options.receiptsContract ?? requireAddress(network, 'executionReceipts'),
+    );
     this.gasPrice = options.gasPrice ?? DEFAULT_GAS_PRICE;
 
     this.chain = defineChain({

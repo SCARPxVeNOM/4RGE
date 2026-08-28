@@ -44,7 +44,8 @@ import {
   type ResponseSignature,
 } from '@0gflow/core';
 import { AdapterError, invokeHttpAdapter, type AttemptRecord } from './adapter.js';
-import { planFlow, type FlowSpec, type PlannedStep } from './plan.js';
+import { planFlow, PlanError, type FlowSpec, type PlannedStep } from './plan.js';
+import type { AdapterResolver } from './adapters.js';
 
 export interface AnchorReceipt {
   readonly txHash: Hex;
@@ -142,7 +143,21 @@ export interface ExecuteOptions {
   readonly runId: Hex;
   readonly chain: ChainWriter;
   readonly traces: TraceStore;
-  readonly endpointFor: (step: PlannedStep) => string;
+  /**
+   * Where to call each agent, supplied by the caller.
+   *
+   * Optional now that `adapters` can answer the same question from chain.
+   * Kept because tests and offline development need a flow to run without a
+   * registry, and because an operator running their own agents should not
+   * have to publish them to call them. When both are given the callback wins:
+   * an explicit local override is the more specific instruction.
+   */
+  readonly endpointFor?: (step: PlannedStep) => string;
+  /**
+   * The adapter registry — spec §7 step 1. This is what lets a flow name an
+   * agent it does not operate, which is the whole point of a marketplace.
+   */
+  readonly adapters?: AdapterResolver;
   /** 0G's InferenceServing registry. Omitted means attestations cap at `present`. */
   readonly signers?: SignerRegistry;
   /**
@@ -175,6 +190,7 @@ export async function executeRun(options: ExecuteOptions): Promise<RunResult> {
     chain,
     traces,
     endpointFor,
+    adapters,
     signers,
     agents,
     failFast = true,
@@ -185,6 +201,15 @@ export async function executeRun(options: ExecuteOptions): Promise<RunResult> {
   // §5.1: validation happens before anything is published, invoked or
   // anchored. A rejected plan costs nothing; a bad receipt is permanent.
   const plan = planFlow(spec);
+
+  if (endpointFor === undefined && adapters === undefined) {
+    // Refused up front, before anything is published or anchored (§5.1). A
+    // run that discovers this at the first step would already have written a
+    // flow and a run to chain for a plan that was never executable.
+    throw new PlanError(
+      'no way to reach any agent: supply endpointFor, or adapters to resolve them from the registry',
+    );
+  }
 
   if (!(await chain.isFlowPublished(plan.flowId))) {
     await chain.publishFlow(plan.flowId, hashJson(spec as unknown as JsonValue), plan.name);
@@ -208,7 +233,8 @@ export async function executeRun(options: ExecuteOptions): Promise<RunResult> {
           runId,
           flowId: plan.flowId,
           traces,
-          endpointFor,
+          ...(endpointFor === undefined ? {} : { endpointFor }),
+          ...(adapters === undefined ? {} : { adapters }),
           defaultTimeoutMs,
           now,
           chainId: chain.chainId,
@@ -267,7 +293,8 @@ interface RunStepArgs {
   runId: Hex;
   flowId: Hex;
   traces: TraceStore;
-  endpointFor: (step: PlannedStep) => string;
+  endpointFor?: (step: PlannedStep) => string;
+  adapters?: AdapterResolver;
   defaultTimeoutMs: number;
   now: () => number;
   chainId: number;
@@ -277,7 +304,7 @@ interface RunStepArgs {
 }
 
 async function runStep(args: RunStepArgs): Promise<StepOutcomeInternal> {
-  const { step, halted, inputs, outputs, statusById, runId, flowId, traces, endpointFor, defaultTimeoutMs, now, signers, agents, chainId, receiptsAddress } = args;
+  const { step, halted, inputs, outputs, statusById, runId, flowId, traces, endpointFor, adapters, defaultTimeoutMs, now, signers, agents, chainId, receiptsAddress } = args;
   const startedAtMs = now();
 
   // A step whose upstream did not succeed has no data to run on. Skipping is
@@ -296,6 +323,18 @@ async function runStep(args: RunStepArgs): Promise<StepOutcomeInternal> {
 
   if (skipReason !== undefined) {
     return buildSkipped(step, runId, flowId, traces, skipReason, startedAtMs, now);
+  }
+
+  // 1a. Resolve where this agent lives — §7 step 1.
+  //
+  // Before the input, because a step naming an agent nobody has listed cannot
+  // run at all, and finding that out after building the input would just be
+  // work thrown away.
+  let endpoint: string;
+  try {
+    endpoint = await resolveEndpoint(step, endpointFor, adapters);
+  } catch (error) {
+    return buildFailed(step, runId, flowId, traces, null, (error as Error).message, [], startedAtMs, now);
   }
 
   // 1. Build the input.
@@ -320,7 +359,7 @@ async function runStep(args: RunStepArgs): Promise<StepOutcomeInternal> {
   let attempts: AttemptRecord[];
   try {
     const invocation = await invokeHttpAdapter(
-      endpointFor(step),
+      endpoint,
       {
         runId,
         flowId,
@@ -531,6 +570,44 @@ export interface OutputIdentity {
   readonly signature: Hex | null;
   readonly registeredSigner: Hex | null;
   readonly valid: boolean;
+}
+
+/**
+ * Where to POST this step's invocation.
+ *
+ * The caller's callback wins over the registry: an explicit local override is
+ * the more specific instruction, and it is what makes tests and offline
+ * development possible without publishing anything.
+ *
+ * Every failure here is thrown and turned into a Failed receipt by the
+ * caller, never into a silent skip. A flow that names an unlisted agent
+ * should say so in its receipts.
+ */
+async function resolveEndpoint(
+  step: PlannedStep,
+  endpointFor: ((step: PlannedStep) => string) | undefined,
+  adapters: AdapterResolver | undefined,
+): Promise<string> {
+  if (endpointFor !== undefined) return endpointFor(step);
+  if (adapters === undefined) {
+    throw new Error(`no endpoint for agent ${step.agent} and no adapter registry configured`);
+  }
+
+  const adapter = await adapters.resolve(BigInt(step.agent));
+  if (adapter === null) {
+    throw new Error(
+      `agent ${step.agent} is not listed in the adapter registry, so there is nowhere to call it`,
+    );
+  }
+  if (!adapter.active) {
+    // Its operator took it out of the directory. Calling it anyway would
+    // ignore the one signal they have for saying "do not hire me right now".
+    throw new Error(`agent ${step.agent} is listed but not active, so it declines to be hired`);
+  }
+  if (adapter.endpoint.length === 0) {
+    throw new Error(`agent ${step.agent} is listed with an empty endpoint`);
+  }
+  return adapter.endpoint;
 }
 
 async function buildFailed(

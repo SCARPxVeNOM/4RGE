@@ -4,11 +4,18 @@
   "private": true,
   "description": "Executes a real multi-step run against the deployed contracts on 0G Galileo",
   "type": "module",
-  "scripts": { "live": "tsx src/run.ts" },
+  "scripts": {
+    "live": "tsx src/run.ts",
+    "marketplace": "tsx src/marketplace.ts"
+  },
   "dependencies": {
     "@0gflow/config": "workspace:*",
     "@0gflow/core": "workspace:*",
-    "viem": "^2.21.0"
+    "viem": "^2.21.0",
+    "@0gflow/executor": "workspace:*",
+    "@0gflow/storage": "workspace:*"
   },
-  "devDependencies": { "tsx": "^4.19.2" }
+  "devDependencies": {
+    "tsx": "^4.19.2"
+  }
 }

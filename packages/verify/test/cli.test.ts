@@ -163,7 +163,11 @@ describe('renderReport', () => {
     expect(out).toMatch(/chain root mismatch/);
   });
 
-  test('flags a step that required an attestation and did not get one', () => {
+  test('flags an unattested step without guessing why it is unattested', () => {
+    // A zero attestationRef means no attestation was anchored. Since agent
+    // signatures exist, a step can be Unattested because its identity went
+    // unproven instead, so the label must not claim an attestation was
+    // required — it cannot know that from the receipt.
     const out = renderReport(
       {
         ...baseReport,
@@ -171,7 +175,8 @@ describe('renderReport', () => {
       },
       ctx,
     );
-    expect(out).toMatch(/required but absent/);
+    expect(out).toMatch(/none anchored/);
+    expect(out).not.toMatch(/required but absent/);
     expect(out).toMatch(/status: unattested/);
   });
 });
