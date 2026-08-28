@@ -30,6 +30,8 @@ import {
   hashJson,
   resolveTemplates,
   keccak256,
+  validateAgainstSchema,
+  describeSchemaProblems,
   statusSucceeded,
   StepStatus,
   verifyAgentSignature,
@@ -122,6 +124,18 @@ export interface EscrowClient {
   releaseStep(runId: Hex, stepIndex: number, agentSignature: Hex): Promise<unknown>;
 }
 
+/**
+ * Fetches the JSON Schema an agent committed to, by its 0G Storage root.
+ *
+ * The root comes from the registry, so this is the schema the agent published
+ * and cannot quietly change — unlike `GET /schema` on the agent itself, which
+ * is whatever it is serving right now. Validating against the committed one is
+ * what makes §7 step 3 a check rather than a courtesy.
+ */
+export interface SchemaResolver {
+  fetch(schemaRoot: Hex): Promise<JsonValue | null>;
+}
+
 export interface TraceStore {
   readonly describe: string;
   put(trace: JsonValue): Promise<{ traceRoot: Hex }>;
@@ -205,6 +219,12 @@ export interface ExecuteOptions {
    * anchors and does not pay, which is every run that is not funded.
    */
   readonly escrow?: EscrowClient;
+  /**
+   * Validates each step's input against the schema its agent published —
+   * §7 step 3. Omitted means inputs are sent unchecked, which is what every
+   * run did before this existed.
+   */
+  readonly schemas?: SchemaResolver;
   /** Halt remaining waves after a step fails. Defaults to true (§5 policy). */
   readonly failFast?: boolean;
   readonly defaultTimeoutMs?: number;
@@ -250,6 +270,7 @@ export async function executeRun(options: ExecuteOptions): Promise<RunResult> {
     signers,
     agents,
     escrow,
+    schemas,
     failFast = true,
     defaultTimeoutMs = 30_000,
     now = Date.now,
@@ -323,6 +344,7 @@ export async function executeRun(options: ExecuteOptions): Promise<RunResult> {
             }),
           ...(signers === undefined ? {} : { signers }),
           ...(agents === undefined ? {} : { agents }),
+          ...(schemas === undefined ? {} : { schemas }),
         }),
       ),
     );
@@ -390,10 +412,11 @@ interface RunStepArgs {
   runSubFlow: (spec: FlowSpec, inputs: JsonValue, childRunId: Hex) => Promise<RunResult>;
   signers?: SignerRegistry;
   agents?: AgentRegistry;
+  schemas?: SchemaResolver;
 }
 
 async function runStep(args: RunStepArgs): Promise<StepOutcomeInternal> {
-  const { step, halted, inputs, outputs, statusById, runId, flowId, traces, endpointFor, adapters, defaultTimeoutMs, now, signers, agents, chainId, receiptsAddress, runSubFlow } = args;
+  const { step, halted, inputs, outputs, statusById, runId, flowId, traces, endpointFor, adapters, defaultTimeoutMs, now, signers, agents, schemas, chainId, receiptsAddress, runSubFlow } = args;
   const startedAtMs = now();
 
   // A step whose upstream did not succeed has no data to run on. Skipping is
@@ -452,6 +475,16 @@ async function runStep(args: RunStepArgs): Promise<StepOutcomeInternal> {
     return buildFailed(step, runId, flowId, traces, null, (error as Error).message, [], startedAtMs, now);
   }
   const inputHash = hashJson(resolvedInput);
+
+  // 1b. Validate the input against what the agent published — §7 step 3.
+  //
+  // After building the input, because there is nothing to validate before it
+  // exists, and before invoking, because the point is to not send an agent
+  // data its own contract says it cannot take.
+  const schemaProblem = await checkInputSchema(step, resolvedInput, { schemas, adapters });
+  if (schemaProblem !== null) {
+    return buildFailed(step, runId, flowId, traces, resolvedInput, schemaProblem, [], startedAtMs, now);
+  }
 
   // 2. Invoke.
   const timeoutMs = step.timeoutMs ?? defaultTimeoutMs;
@@ -677,6 +710,56 @@ export interface OutputIdentity {
   readonly signature: Hex | null;
   readonly registeredSigner: Hex | null;
   readonly valid: boolean;
+}
+
+/**
+ * Checks a step's input against the schema its agent committed to.
+ *
+ * Returns null when the input is acceptable *or* when the check could not be
+ * made — and those are genuinely different, so the difference is in the note
+ * rather than in the outcome. A step must not fail because a storage node was
+ * slow: that would make an unrelated outage look like a bad flow, and the
+ * agent will reject the input itself if it really is wrong.
+ *
+ * Refusing outright is reserved for the case where the schema was read and the
+ * input does not satisfy it. That is a fact about the flow, known before
+ * anything is invoked, and it is cheaper to fail here than to have the agent
+ * fail on it after being paid for the attempt.
+ */
+async function checkInputSchema(
+  step: PlannedStep,
+  input: JsonValue,
+  ctx: { schemas: SchemaResolver | undefined; adapters: AdapterResolver | undefined },
+): Promise<string | null> {
+  const { schemas, adapters } = ctx;
+  if (schemas === undefined || adapters === undefined) return null;
+
+  let schemaRoot: Hex;
+  try {
+    const adapter = await adapters.resolve(BigInt(step.agent));
+    if (adapter === null || adapter.schemaRoot === ZERO_BYTES32) return null;
+    schemaRoot = adapter.schemaRoot;
+  } catch {
+    return null;
+  }
+
+  let published: JsonValue | null;
+  try {
+    published = await schemas.fetch(schemaRoot);
+  } catch {
+    return null;
+  }
+  if (published === null || typeof published !== 'object' || Array.isArray(published)) return null;
+
+  // The published document holds both halves; only the input half constrains
+  // what we are about to send.
+  const inputSchema = (published as Record<string, JsonValue>)['input'];
+  if (inputSchema === undefined) return null;
+
+  const check = validateAgainstSchema(input, inputSchema);
+  if (check.valid) return null;
+
+  return `the input does not satisfy the schema agent ${step.agent} published (${schemaRoot}): ${describeSchemaProblems(check)}`;
 }
 
 /**

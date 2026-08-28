@@ -21,6 +21,9 @@ export {
   type StepResult,
   type SignerRegistry,
   type AgentRegistry,
+  type EscrowClient,
+  type SchemaResolver,
+  type StepPayment,
   type OutputIdentity,
 } from './execute.js';
 export { ViemChainWriter, ChainError, type ViemChainWriterOptions } from './chain.js';
@@ -36,3 +39,4 @@ export {
   type ViemAdapterRegistryOptions,
 } from './adapters.js';
 export { ViemEscrow, EscrowError, type ViemEscrowOptions } from './escrow.js';
+export { ZgStorageSchemaSource, type ZgStorageSchemaSourceOptions } from './schemas.js';

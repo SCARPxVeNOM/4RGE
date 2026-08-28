@@ -17,6 +17,7 @@ import {
   ViemChainWriter,
   ViemAdapterRegistry,
   ViemAgentRegistry,
+  ZgStorageSchemaSource,
   ViemEscrow,
   type FlowSpec,
 } from '@0gflow/executor';
@@ -107,6 +108,9 @@ async function main(): Promise<number> {
     }),
     adapters,
     agents: new ViemAgentRegistry({ rpcUrl: GALILEO.rpcUrl, adapterRegistry }),
+    // Validates each step's input against the schema its agent committed
+    // to on chain, before the agent is called.
+    schemas: new ZgStorageSchemaSource({ indexerUrl: GALILEO.storageIndexerUrl }),
     // The executor allocates and releases as it anchors. Previously this file
     // drove that by hand, which meant the payment path only worked for
     // callers who knew to write the loop.

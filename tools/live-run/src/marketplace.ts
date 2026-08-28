@@ -17,6 +17,7 @@ import {
   ViemChainWriter,
   ViemAdapterRegistry,
   ViemAgentRegistry,
+  ZgStorageSchemaSource,
   type FlowSpec,
 } from '@0gflow/executor';
 import { ZgStorageTraceStore } from '@0gflow/storage';

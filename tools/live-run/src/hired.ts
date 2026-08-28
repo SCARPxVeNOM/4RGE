@@ -22,6 +22,7 @@ import {
   ViemChainWriter,
   ViemAdapterRegistry,
   ViemAgentRegistry,
+  ZgStorageSchemaSource,
   type FlowSpec,
 } from '@0gflow/executor';
 import { ZgStorageTraceStore } from '@0gflow/storage';
@@ -93,6 +94,9 @@ async function main(): Promise<number> {
     }),
     adapters: new ViemAdapterRegistry({ rpcUrl: GALILEO.rpcUrl, adapterRegistry }),
     agents: new ViemAgentRegistry({ rpcUrl: GALILEO.rpcUrl, adapterRegistry }),
+    // Validates each step's input against the schema its agent committed
+    // to on chain, before the agent is called.
+    schemas: new ZgStorageSchemaSource({ indexerUrl: GALILEO.storageIndexerUrl }),
   });
 
   mkdirSync('artifacts/runs', { recursive: true });

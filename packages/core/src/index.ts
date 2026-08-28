@@ -112,3 +112,9 @@ export {
   AgentSignatureError,
   type AgentOutputClaim,
 } from './agent-signature.js';
+export {
+  validateAgainstSchema,
+  describeSchemaProblems,
+  type SchemaCheck,
+  type SchemaProblem,
+} from './schema.js';
