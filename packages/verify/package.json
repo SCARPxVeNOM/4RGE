@@ -1,14 +1,17 @@
 {
   "name": "@0gflow/verify",
   "version": "1.0.0",
-  "description": "Independently verify a 0G Flow run from public data. Zero dependencies.",
+  "description": "Independently verify a 0G Flow run from public chain data. Single file, zero dependencies.",
   "type": "module",
   "bin": {
     "0gflow-verify": "./dist/verify.mjs"
   },
   "main": "./dist/verify.mjs",
   "files": [
-    "dist"
+    "README.md",
+    "dist",
+    "dist-tsc",
+    "src"
   ],
   "scripts": {
     "build": "node scripts/bundle.mjs"
@@ -29,5 +32,30 @@
     "./decode": "./src/decode.ts",
     "./sources": "./src/sources.ts",
     "./verify": "./src/verify.ts"
+  },
+  "keywords": [
+    "0g",
+    "0g-labs",
+    "galileo",
+    "ai-agents",
+    "agent-marketplace",
+    "verifiable",
+    "erc-8004",
+    "blockchain"
+  ],
+  "homepage": "https://explorer-production-25c8.up.railway.app",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aryan/0g-flow.git",
+    "directory": "packages/verify"
+  },
+  "bugs": {
+    "url": "https://github.com/aryan/0g-flow/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

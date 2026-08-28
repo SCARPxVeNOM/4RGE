@@ -1,14 +1,26 @@
 {
   "name": "@0gflow/publish",
   "version": "1.0.0",
-  "description": "Publish an agent to the 0G Flow marketplace: mint an identity, prove conformance, and list it on chain.",
+  "description": "Publish an agent to the 0G Flow marketplace: mint an identity, prove conformance, list it on chain.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "bin": { "publish": "./dist/cli.js" },
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
-  "files": ["dist"],
-  "scripts": { "build": "tsc -b" },
+  "bin": {
+    "0gflow-publish": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "README.md",
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b"
+  },
   "dependencies": {
     "@0gflow/config": "workspace:*",
     "@0gflow/conform": "workspace:*",
@@ -16,5 +28,30 @@
     "@0gflow/storage": "workspace:*",
     "viem": "^2.21.0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "keywords": [
+    "0g",
+    "0g-labs",
+    "galileo",
+    "ai-agents",
+    "agent-marketplace",
+    "verifiable",
+    "erc-8004",
+    "blockchain"
+  ],
+  "homepage": "https://explorer-production-25c8.up.railway.app",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aryan/0g-flow.git",
+    "directory": "packages/publish"
+  },
+  "bugs": {
+    "url": "https://github.com/aryan/0g-flow/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  }
 }

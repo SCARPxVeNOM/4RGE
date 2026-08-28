@@ -1,16 +1,53 @@
 {
   "name": "@0gflow/conform",
   "version": "1.0.0",
-  "description": "Adapter conformance suite for 0G Flow agents (spec §6.4). Passing is the criterion for composability.",
+  "description": "Conformance suite for 0G Flow agents. Passing it is the criterion for being safe to hire.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "bin": { "conform": "./dist/cli.js" },
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
-  "files": ["dist"],
-  "scripts": { "build": "tsc -b" },
+  "bin": {
+    "0gflow-conform": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "README.md",
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b"
+  },
   "dependencies": {
     "@0gflow/core": "workspace:*"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "keywords": [
+    "0g",
+    "0g-labs",
+    "galileo",
+    "ai-agents",
+    "agent-marketplace",
+    "verifiable",
+    "erc-8004",
+    "blockchain"
+  ],
+  "homepage": "https://explorer-production-25c8.up.railway.app",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aryan/0g-flow.git",
+    "directory": "packages/conform"
+  },
+  "bugs": {
+    "url": "https://github.com/aryan/0g-flow/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  }
 }

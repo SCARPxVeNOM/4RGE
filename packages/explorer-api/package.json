@@ -1,7 +1,7 @@
 {
   "name": "@0gflow/explorer-api",
   "version": "1.0.0",
-  "description": "Public read-only API over the 0G Flow index",
+  "description": "Read-only HTTP API over an indexed 0G Flow database.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -12,6 +12,7 @@
     }
   },
   "files": [
+    "README.md",
     "dist"
   ],
   "scripts": {
@@ -28,5 +29,30 @@
   "devDependencies": {
     "tsx": "^4.19.2"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "keywords": [
+    "0g",
+    "0g-labs",
+    "galileo",
+    "ai-agents",
+    "agent-marketplace",
+    "verifiable",
+    "erc-8004",
+    "blockchain"
+  ],
+  "homepage": "https://explorer-production-25c8.up.railway.app",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aryan/0g-flow.git",
+    "directory": "packages/explorer-api"
+  },
+  "bugs": {
+    "url": "https://github.com/aryan/0g-flow/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  }
 }

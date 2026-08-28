@@ -1,17 +1,52 @@
 {
   "name": "@0gflow/storage",
   "version": "1.0.0",
-  "description": "0G Storage trace store: uploads execution traces and returns the Merkle root a verifier can retrieve them by",
+  "description": "Read and write 0G Flow execution traces on 0G Storage.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
-  "files": ["dist"],
-  "scripts": { "build": "tsc -b" },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "README.md",
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b"
+  },
   "dependencies": {
     "@0gflow/core": "workspace:*",
     "@0glabs/0g-ts-sdk": "^0.3.3",
     "ethers": "^6.13.0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "keywords": [
+    "0g",
+    "0g-labs",
+    "galileo",
+    "ai-agents",
+    "agent-marketplace",
+    "verifiable",
+    "erc-8004",
+    "blockchain"
+  ],
+  "homepage": "https://explorer-production-25c8.up.railway.app",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aryan/0g-flow.git",
+    "directory": "packages/storage"
+  },
+  "bugs": {
+    "url": "https://github.com/aryan/0g-flow/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  }
 }
