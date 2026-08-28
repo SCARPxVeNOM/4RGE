@@ -1,6 +1,6 @@
 {
   "name": "@0gflow/core",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Canonical JSON, receipt hashing, chain roots, attestation binding and agent output signatures for 0G Flow. Zero dependencies.",
   "type": "module",
   "main": "./dist/index.js",
@@ -36,11 +36,11 @@
   "homepage": "https://explorer-production-25c8.up.railway.app",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/aryan/0g-flow.git",
+    "url": "git+https://github.com/SCARPxVeNOM/4RGE.git",
     "directory": "packages/core"
   },
   "bugs": {
-    "url": "https://github.com/aryan/0g-flow/issues"
+    "url": "https://github.com/SCARPxVeNOM/4RGE/issues"
   },
   "publishConfig": {
     "access": "public"

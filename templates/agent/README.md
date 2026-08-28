@@ -3,7 +3,7 @@
 Fork this, change one function, deploy it, publish it. Then anyone can hire it
 and every job it does leaves a receipt on 0G that they can check.
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template?template=https%3A%2F%2Fgithub.com%2Faryan%2F0g-flow%2Ftree%2Fmain%2Ftemplates%2Fagent)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template?template=https%3A%2F%2Fgithub.com%2FSCARPxVeNOM%2F4RGE%2Ftree%2Fmain%2Ftemplates%2Fagent)
 
 ## 1. Run it
 

@@ -1,6 +1,6 @@
 {
   "name": "@0gflow/verify",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Independently verify a 0G Flow run from public chain data. Single file, zero dependencies.",
   "type": "module",
   "bin": {
@@ -54,11 +54,11 @@
   "homepage": "https://explorer-production-25c8.up.railway.app",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/aryan/0g-flow.git",
+    "url": "git+https://github.com/SCARPxVeNOM/4RGE.git",
     "directory": "packages/verify"
   },
   "bugs": {
-    "url": "https://github.com/aryan/0g-flow/issues"
+    "url": "https://github.com/SCARPxVeNOM/4RGE/issues"
   },
   "publishConfig": {
     "access": "public"

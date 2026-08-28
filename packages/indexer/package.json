@@ -1,6 +1,6 @@
 {
   "name": "@0gflow/indexer",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Index 0G Flow receipts, listings and bonds from 0G Chain into Postgres.",
   "type": "module",
   "main": "./dist/index.js",
@@ -43,11 +43,11 @@
   "homepage": "https://explorer-production-25c8.up.railway.app",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/aryan/0g-flow.git",
+    "url": "git+https://github.com/SCARPxVeNOM/4RGE.git",
     "directory": "packages/indexer"
   },
   "bugs": {
-    "url": "https://github.com/aryan/0g-flow/issues"
+    "url": "https://github.com/SCARPxVeNOM/4RGE/issues"
   },
   "publishConfig": {
     "access": "public"
