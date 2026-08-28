@@ -155,6 +155,27 @@ export function renderReport(
   lines.push(
     `  Outcome      ${report.runSucceeded ? TICK : DASH}   ${report.runSucceeded ? 'success' : report.sealedOutcome === null ? 'unsealed' : `not a success (sealed outcome ${report.sealedOutcome})`}`,
   );
+
+  // Sub-workflows this run hired, each verified in its own right. Indented
+  // under the parent because that is the relationship: the parent's step is
+  // only as good as the child run it points at.
+  for (const child of report.hired) {
+    lines.push('');
+    lines.push(`  Hired by step ${child.parentStepIndex}: run ${short(child.childRunId, 12)}`);
+    if (child.report === null) {
+      lines.push(`      ${DASH} not verified: ${child.skipped ?? 'reason unrecorded'}`);
+      continue;
+    }
+    const rootsAgree =
+      child.report.sealedChainRoot !== null &&
+      child.report.sealedChainRoot.toLowerCase() === child.claimedChainRoot.toLowerCase();
+    lines.push(
+      `      ${rootsAgree ? TICK : CROSS} the parent's claimed root ${rootsAgree ? 'matches' : 'does NOT match'} what that run sealed`,
+    );
+    lines.push(
+      `      ${child.report.verdict === 'verified' ? TICK : child.report.verdict === 'failed' ? CROSS : '?'} ${child.report.verdict.toUpperCase()} — ${child.report.stepCount} step(s)`,
+    );
+  }
   lines.push('');
 
   if (report.failures.length > 0) {

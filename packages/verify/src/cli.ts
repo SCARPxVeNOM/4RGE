@@ -17,7 +17,8 @@ import {
   ZgStorageTraceSource,
   type TraceSource,
 } from './sources.js';
-import { verifyRun, type SpecForLinkage, type VerificationReport } from './verify.js';
+import { verifyRun, type SpecForLinkage,
+  type SpecStep, type VerificationReport } from './verify.js';
 import { exitCodeFor, renderReport } from './report.js';
 
 const USAGE = `
@@ -129,14 +130,40 @@ export function loadSpec(specPath: string, inputsPath: string | undefined): Spec
           `${specPath}: step ${i} has no "id"; this looks like a run summary rather than a flow spec`,
         );
       }
+      // A sub-flow is declared inline, so it comes along and lets a hired
+      // child be checked against the flow its parent said it would run.
+      const flow = step['flow'] as Record<string, unknown> | undefined;
       return {
         id: String(step['id']),
         input: (step['input'] ?? {}) as JsonValue,
         ...(Array.isArray(needs) ? { needs: needs.map(String) } : {}),
+        ...(flow !== undefined && Array.isArray(flow['steps'])
+          ? { flow: { steps: linkedSteps(flow['steps'], specPath) } }
+          : {}),
       };
     }),
     inputs,
   };
+}
+
+/** Shared by a flow and any sub-flow it declares. */
+function linkedSteps(steps: readonly unknown[], specPath: string): SpecStep[] {
+  return steps.map((s, i) => {
+    const step = s as Record<string, unknown>;
+    const needs = step['needs'];
+    if (typeof step['id'] !== 'string' || step['id'].length === 0) {
+      throw new Error(`${specPath}: sub-flow step ${i} has no "id"`);
+    }
+    const flow = step['flow'] as Record<string, unknown> | undefined;
+    return {
+      id: String(step['id']),
+      input: (step['input'] ?? {}) as JsonValue,
+      ...(Array.isArray(needs) ? { needs: needs.map(String) } : {}),
+      ...(flow !== undefined && Array.isArray(flow['steps'])
+        ? { flow: { steps: linkedSteps(flow['steps'], specPath) } }
+        : {}),
+    };
+  });
 }
 
 function buildTraceSource(network: Network, args: Args): TraceSource {

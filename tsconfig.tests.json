@@ -1,0 +1,24 @@
+/*
+ * Typechecks the test files, which the per-package builds deliberately do not.
+ *
+ * Each package's tsconfig includes only `src`, because tests must not end up
+ * in published `dist`. The cost of that was invisible until it bit: a fake
+ * ChainWriter in the executor tests silently lost two required fields when the
+ * interface grew, so `chainId` was `undefined` at run time and every test
+ * still passed. A test that compiles against a stale interface is worse than
+ * no test — it reports green for a shape that no longer exists.
+ *
+ * noEmit, so this checks without producing anything. It relies on the packages
+ * having been built first, which `pnpm typecheck` does.
+ */
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "types": ["node"]
+  },
+  "include": ["packages/*/test/**/*.ts", "tools/*/test/**/*.ts"]
+}

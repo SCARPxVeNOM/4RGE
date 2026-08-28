@@ -4,12 +4,14 @@
   "version": "1.0.0",
   "description": "Verifiable agent workflows on 0G",
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm --filter @0gflow/verify build && vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -b --force && tsc --noEmit -p apps/explorer",
+    "typecheck": "tsc -b --force && tsc --noEmit -p tsconfig.tests.json && tsc --noEmit -p apps/explorer",
     "test:contracts": "forge test --root contracts",
     "test:python": "python -m pytest packages/python-sdk/tests -q"
   },
@@ -21,6 +23,8 @@
   },
   "packageManager": "pnpm@10.34.5",
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild"]
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   }
 }

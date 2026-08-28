@@ -52,8 +52,16 @@ const CLAIM: AgentOutputClaim = {
   outputHash: `0x${'44'.repeat(32)}`,
 };
 
+/**
+ * Core models a hash as `string`; viem wants `0x${string}`. The cast is at the
+ * boundary rather than widening `Hex`, which is deliberately loose so the
+ * zero-dependency verifier never has to satisfy a library's type.
+ */
+const raw = (claim: AgentOutputClaim): `0x${string}` =>
+  agentOutputDigest(claim) as `0x${string}`;
+
 const sign = (claim: AgentOutputClaim = CLAIM) =>
-  AGENT.signMessage({ message: { raw: agentOutputDigest(claim) } });
+  AGENT.signMessage({ message: { raw: raw(claim) } });
 
 describe('the domain separator', () => {
   test('is keccak256 of the versioned label', () => {
@@ -84,7 +92,7 @@ describe('the digest', () => {
   test('the message hash is EIP-191 over the digest, matching viem', () => {
     // viem's hashMessage({raw}) is what Solidity's toEthSignedMessageHash does.
     expect(agentOutputMessageHash(CLAIM)).toBe(
-      hashMessage({ raw: agentOutputDigest(CLAIM) }),
+      hashMessage({ raw: raw(CLAIM) }),
     );
   });
 });
@@ -135,7 +143,7 @@ describe('verification', () => {
 
   test('rejects a signature by another key', async () => {
     const signature = (await IMPOSTER.signMessage({
-      message: { raw: agentOutputDigest(CLAIM) },
+      message: { raw: raw(CLAIM) },
     })) as Hex;
     expect(verifyAgentSignature(CLAIM, signature, AGENT.address)).toBe(false);
   });

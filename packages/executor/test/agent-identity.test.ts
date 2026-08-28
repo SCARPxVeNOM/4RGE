@@ -67,7 +67,8 @@ beforeAll(async () => {
             const account = KEY_FOR[name] ?? ACCOUNT;
             const { signature } = await signOutput(
               { request, agentId: '7', output },
-              (digest) => account.signMessage({ message: { raw: digest as Hex } }),
+              // Core's Hex is `string`; viem wants the template literal.
+              (digest) => account.signMessage({ message: { raw: digest as `0x${string}` } }),
             );
             return { output, outputSignature: signature };
           },

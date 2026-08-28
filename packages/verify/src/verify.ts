@@ -205,6 +205,25 @@ export type IdentityState =
   | 'valid'
   | 'unconfirmed';
 
+/**
+ * A sub-workflow one of this run's steps hired.
+ *
+ * A step of `kind: 'flow'` publishes the child run's on-chain result as its
+ * output — run id and sealed chain root. That is what makes hiring verifiable:
+ * the claim can be checked against the child's own seal, so a parent cannot
+ * take credit for work its child did not do.
+ */
+export interface HiredRunCheck {
+  readonly parentStepIndex: number;
+  readonly childRunId: Hex;
+  /** The chain root the parent's output claims the child sealed. */
+  readonly claimedChainRoot: Hex;
+  /** The full report for the child, or null when it was not verified. */
+  readonly report: VerificationReport | null;
+  /** Why the child was not verified, when it was not. */
+  readonly skipped: string | null;
+}
+
 export interface VerificationReport {
   readonly runId: Hex;
   readonly flowId: Hex | null;
@@ -223,11 +242,26 @@ export interface VerificationReport {
   readonly failures: string[];
   readonly incomplete: string[];
   readonly traceSource: string;
+  /** Sub-workflows this run hired, each verified in its own right. */
+  readonly hired: readonly HiredRunCheck[];
+}
+
+/**
+ * A step of a flow spec, for linkage purposes.
+ *
+ * `flow` is carried so a parent's spec can supply its child's. Without it a
+ * hired run is verified with no spec at all, its linkage goes unchecked, and
+ * the parent can therefore never be better than INCOMPLETE — which would make
+ * hiring permanently second-class for no good reason, since the parent's own
+ * spec already contains the child's.
+ */
+export interface SpecStep extends LinkedStep {
+  readonly flow?: { readonly steps: readonly SpecStep[] };
 }
 
 /** The parts of a flow spec needed to re-derive inputs (§9 step 4). */
 export interface SpecForLinkage {
-  readonly steps: readonly LinkedStep[];
+  readonly steps: readonly SpecStep[];
   readonly inputs: JsonValue;
 }
 
@@ -253,6 +287,15 @@ export interface VerifyOptions {
     readonly receipts: Hex;
     readonly chainId: number;
   };
+  /**
+   * How many levels of hired sub-workflow to follow. Default 3.
+   *
+   * A cap rather than unbounded recursion: the runs being followed are named
+   * by data this verifier is in the middle of checking, so a malicious or
+   * simply broken parent could otherwise point at a chain of runs long enough
+   * to exhaust the process. Set 0 to report hired runs without verifying them.
+   */
+  readonly maxHireDepth?: number;
 }
 
 interface StepEvidenceRecord {
@@ -263,8 +306,10 @@ interface StepEvidenceRecord {
 
 export async function verifyRun(options: VerifyOptions): Promise<VerificationReport> {
   const { runId, chain, traces, identityRegistry, spec, agentIdentity } = options;
+  const maxHireDepth = options.maxHireDepth ?? 3;
   const failures: string[] = [];
   const incomplete: string[] = [];
+  const hiredClaims: { stepIndex: number; childRunId: Hex; chainRoot: Hex }[] = [];
 
   // --- Step 1: receipts and seal from chain logs -------------------------
   const stepLogs = await chain.getStepAnchoredLogs(runId);
@@ -275,7 +320,7 @@ export async function verifyRun(options: VerifyOptions): Promise<VerificationRep
       runSucceeded: false, steps: [], linkage: null,
       linkageSkipped: 'the run has no receipts to link',
       failures: [`no StepAnchored receipts found for run ${runId}: the run does not exist on this chain, or was anchored to a different contract`],
-      incomplete: [], traceSource: traces.describe,
+      incomplete: [], traceSource: traces.describe, hired: [],
     };
   }
 
@@ -395,6 +440,14 @@ export async function verifyRun(options: VerifyOptions): Promise<VerificationRep
         }
 
         evidence.push({ stepIndex: receipt.stepIndex, input: trace.input, output: trace.output });
+
+        // A step whose output names a child run hired a whole sub-workflow.
+        // Collected here and followed after this loop, so the parent's own
+        // checks finish before any recursion.
+        const claim = readHiredClaim(trace.output);
+        if (claim !== null) {
+          hiredClaims.push({ stepIndex: receipt.stepIndex, ...claim });
+        }
 
         // Step 5: attestation.
         if (receipt.attestationRef === ZERO_BYTES32) {
@@ -550,6 +603,94 @@ export async function verifyRun(options: VerifyOptions): Promise<VerificationRep
     if (!linkage.ok) failures.push(...linkage.failures);
   }
 
+  // --- Step 9: the sub-workflows this run hired ---------------------------
+  //
+  // Each child is a run in its own right, with its own receipts and its own
+  // seal, so it is verified the same way this one was. The parent's claim is
+  // then checked against what the child actually sealed — which is the whole
+  // reason the parent publishes the child's root rather than its data.
+  const hired: HiredRunCheck[] = [];
+  for (const claim of hiredClaims) {
+    if (maxHireDepth <= 0) {
+      hired.push({
+        parentStepIndex: claim.stepIndex,
+        childRunId: claim.childRunId,
+        claimedChainRoot: claim.chainRoot,
+        report: null,
+        skipped: 'the hired-run depth limit was reached, so this child was not verified',
+      });
+      incomplete.push(
+        `step ${claim.stepIndex} hired run ${claim.childRunId}, which was not verified because the depth limit was reached`,
+      );
+      continue;
+    }
+
+    let report: VerificationReport;
+    try {
+      report = await verifyRun({
+        ...options,
+        runId: claim.childRunId,
+        // The child's spec, when the parent's spec carries it. A sub-flow is
+        // declared inline in the parent, so this is the same document — and
+        // the child's inputs are exactly the parent step's resolved input,
+        // which is in the evidence already gathered above.
+        spec: childSpecFor(spec, evidence, claim.stepIndex),
+        maxHireDepth: maxHireDepth - 1,
+      });
+    } catch (error) {
+      hired.push({
+        parentStepIndex: claim.stepIndex,
+        childRunId: claim.childRunId,
+        claimedChainRoot: claim.chainRoot,
+        report: null,
+        skipped: (error as Error).message,
+      });
+      incomplete.push(
+        `step ${claim.stepIndex} hired run ${claim.childRunId}, which could not be verified: ${(error as Error).message}`,
+      );
+      continue;
+    }
+
+    hired.push({
+      parentStepIndex: claim.stepIndex,
+      childRunId: claim.childRunId,
+      claimedChainRoot: claim.chainRoot,
+      report,
+      skipped: null,
+    });
+
+    // The load-bearing check. The parent's trace hash is already verified
+    // against its receipt, so a disagreement here is not a corrupted trace —
+    // it is a parent that anchored a claim about a child run the chain does
+    // not support. That is a failure, not an unknown.
+    if (
+      report.sealedChainRoot !== null &&
+      report.sealedChainRoot.toLowerCase() !== claim.chainRoot.toLowerCase()
+    ) {
+      failures.push(
+        `step ${claim.stepIndex} claims hired run ${claim.childRunId} sealed ${claim.chainRoot}, but that run sealed ${report.sealedChainRoot}`,
+      );
+    }
+    if (report.sealedChainRoot === null) {
+      incomplete.push(
+        `step ${claim.stepIndex} hired run ${claim.childRunId}, which is not sealed on chain, so its result cannot be confirmed`,
+      );
+    }
+    if (report.verdict === 'failed') {
+      failures.push(
+        `step ${claim.stepIndex} hired run ${claim.childRunId}, which does not verify: ${report.failures[0] ?? 'see its own report'}`,
+      );
+    } else if (report.verdict === 'incomplete') {
+      // A parent whose child could not be fully checked is itself not fully
+      // checked. Reporting VERIFIED over an INCOMPLETE child would be the
+      // clean-looking summary §9 exists to prevent: the parent's own evidence
+      // is the child run, so the gap is the parent's gap too.
+      incomplete.push(
+        `step ${claim.stepIndex} hired run ${claim.childRunId}, which is itself incomplete: ${report.incomplete[0] ?? 'see its own report'}`,
+      );
+    }
+  }
+
   const runSucceeded =
     seal !== null &&
     seal.outcome === 0 &&
@@ -574,5 +715,54 @@ export async function verifyRun(options: VerifyOptions): Promise<VerificationRep
     failures,
     incomplete,
     traceSource: traces.describe,
+    hired,
   };
+}
+
+/**
+ * The spec to verify a hired child against, derived from the parent's.
+ *
+ * Returns null when the parent's spec was not supplied or does not declare a
+ * sub-flow at that step — in which case the child's linkage is honestly
+ * reported as unchecked rather than checked against the wrong flow.
+ */
+function childSpecFor(
+  spec: SpecForLinkage | null,
+  evidence: readonly StepEvidenceRecord[],
+  stepIndex: number,
+): SpecForLinkage | null {
+  const flow = spec?.steps[stepIndex]?.flow;
+  if (flow === undefined) return null;
+
+  const parentStepInput = evidence.find((e) => e.stepIndex === stepIndex)?.input;
+  if (parentStepInput === undefined) return null;
+
+  // The sub-flow runs with the parent step's resolved input as its inputs.
+  return { steps: flow.steps, inputs: parentStepInput };
+}
+
+/**
+ * Reads a hired-run claim out of a step's output.
+ *
+ * Deliberately strict: every field must be present and well formed, or this
+ * is not a sub-workflow step and no child is followed. A partial match would
+ * mean chasing a run id that some ordinary agent happened to put in its
+ * output under a colliding key.
+ */
+function readHiredClaim(output: JsonValue): { childRunId: Hex; chainRoot: Hex } | null {
+  if (output === null || typeof output !== 'object' || Array.isArray(output)) return null;
+  const record = output as Record<string, JsonValue>;
+
+  const childRunId = record['childRunId'];
+  const chainRoot = record['chainRoot'];
+  const hex32 = /^0x[0-9a-fA-F]{64}$/;
+
+  if (typeof childRunId !== 'string' || !hex32.test(childRunId)) return null;
+  if (typeof chainRoot !== 'string' || !hex32.test(chainRoot)) return null;
+  // These two accompany a real sub-flow output and are cheap corroboration
+  // that this is one, rather than a coincidence.
+  if (typeof record['stepCount'] !== 'number') return null;
+  if (typeof record['outcome'] !== 'number') return null;
+
+  return { childRunId: childRunId.toLowerCase() as Hex, chainRoot: chainRoot.toLowerCase() as Hex };
 }

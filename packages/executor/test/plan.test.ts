@@ -202,7 +202,13 @@ describe('flow identity', () => {
     const reordered: FlowSpec = {
       name: AUDIT_SUMMARIZE_PUBLISH.name,
       version: AUDIT_SUMMARIZE_PUBLISH.version,
-      outputs: AUDIT_SUMMARIZE_PUBLISH.outputs,
+      // Spread rather than assigned: `outputs` is optional, and under
+      // exactOptionalPropertyTypes writing `undefined` into it is a different
+      // thing from omitting it — which would change the canonical form and so
+      // the flowId this test is about.
+      ...(AUDIT_SUMMARIZE_PUBLISH.outputs === undefined
+        ? {}
+        : { outputs: AUDIT_SUMMARIZE_PUBLISH.outputs }),
       inputs: AUDIT_SUMMARIZE_PUBLISH.inputs,
       steps: AUDIT_SUMMARIZE_PUBLISH.steps,
     };

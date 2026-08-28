@@ -188,11 +188,17 @@ describe('attestationRef', () => {
     const shared = { quote: QUOTE, provider: PROVIDER };
     const a: AttestationBundle = {
       ...shared,
-      response: { chatID: 'ab', model: 'c', text: 't', signature: `0x${'11'.repeat(65)}`, outputPath: '$' },
+      response: {
+        chatID: 'ab', model: 'c', text: 't', signature: `0x${'11'.repeat(65)}`,
+        responseBody: '{}', responsePath: '$', outputPath: '$',
+      },
     };
     const b: AttestationBundle = {
       ...shared,
-      response: { chatID: 'a', model: 'bc', text: 't', signature: `0x${'11'.repeat(65)}`, outputPath: '$' },
+      response: {
+        chatID: 'a', model: 'bc', text: 't', signature: `0x${'11'.repeat(65)}`,
+        responseBody: '{}', responsePath: '$', outputPath: '$',
+      },
     };
     expect(attestationRefFor(a)).not.toBe(attestationRefFor(b));
   });

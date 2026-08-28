@@ -108,7 +108,8 @@ const baseReport: VerificationReport = {
       receiptHash: `0x${'44'.repeat(32)}` as Hex, txHash: `0x${'55'.repeat(32)}` as Hex,
       identityResolved: true, identityOwner: `0x${'aa'.repeat(20)}` as Hex,
       traceOrigin: 'storage', inclusionProofVerified: true, hashesMatch: true,
-      attestation: 'not-required', notes: [],
+      attestation: 'not-required', binding: null, notes: [],
+      outputIdentity: 'absent', recoveredAgentSigner: null,
     },
   ],
   linkage: { ok: true, totalSteps: 1, linkedSteps: 1, steps: [], failures: [] },
@@ -116,6 +117,7 @@ const baseReport: VerificationReport = {
   failures: [],
   incomplete: [],
   traceSource: '0G Storage',
+  hired: [],
 };
 
 const ctx = {
