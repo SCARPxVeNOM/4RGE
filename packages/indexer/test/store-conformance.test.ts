@@ -397,6 +397,56 @@ describe.each(implementations)('%s', (_name, create) => {
     expect((await store.getAgentListing(7n))!.pricePerCall).toBe(huge);
   });
 
+  // -------------------------------------------------------------------------
+  // Health observations
+  //
+  // The streak logic exists twice — a comparison in TypeScript and a CASE in
+  // an ON CONFLICT — so it is exactly the pair that drifts silently.
+  // -------------------------------------------------------------------------
+
+  test('records a probe result', async () => {
+    const store = await create();
+    await store.recordAgentHealth(7n, { ok: true, latencyMs: 42, error: null, checkedAt: 1000n });
+
+    const health = await store.getAgentHealth(7n);
+    expect(health).toMatchObject({ agentId: 7n, ok: true, latencyMs: 42, consecutiveFailures: 0 });
+    expect(health!.checkedAt).toBe(1000n);
+  });
+
+  test('an agent never probed has no health', async () => {
+    const store = await create();
+    expect(await store.getAgentHealth(999n)).toBeNull();
+  });
+
+  test('failures accumulate and a success clears the streak', async () => {
+    const store = await create();
+    for (const at of [1n, 2n, 3n]) {
+      await store.recordAgentHealth(7n, { ok: false, latencyMs: null, error: 'refused', checkedAt: at });
+    }
+    expect((await store.getAgentHealth(7n))!.consecutiveFailures).toBe(3);
+
+    await store.recordAgentHealth(7n, { ok: true, latencyMs: 10, error: null, checkedAt: 4n });
+    const health = await store.getAgentHealth(7n);
+    expect(health!.consecutiveFailures).toBe(0);
+    expect(health!.lastError).toBeNull();
+  });
+
+  test('a failed probe records no latency', async () => {
+    const store = await create();
+    await store.recordAgentHealth(7n, { ok: false, latencyMs: null, error: 'timed out', checkedAt: 1n });
+    expect((await store.getAgentHealth(7n))!.latencyMs).toBeNull();
+  });
+
+  // Health describes whether an HTTP endpoint answered. No chain
+  // reorganisation changes that, so unlike every other table it must survive
+  // a rollback — forgetting it would be forgetting something still true.
+  test('a rollback leaves health alone', async () => {
+    const store = await create();
+    await store.recordAgentHealth(7n, { ok: true, latencyMs: 5, error: null, checkedAt: 1n });
+    await store.rollbackFrom(0n);
+    expect(await store.getAgentHealth(7n)).not.toBeNull();
+  });
+
   // A reorg must forget listings written by blocks that no longer exist,
   // exactly as it forgets receipts.
   test('a rollback drops listings from the replaced blocks', async () => {

@@ -7,3 +7,4 @@ export { MemoryStore } from './memory-store.js';
 export { PostgresStore, SCHEMA } from './postgres-store.js';
 export { JsonRpcChainReader, RpcError } from './rpc.js';
 export type { Store, StepRow, RunRow, AgentRow, FlowRow, SealInput } from './store.js';
+export { probeAgents, httpHealthProbe, type HealthProbe, type ProbeResult } from './health.js';

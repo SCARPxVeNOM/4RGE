@@ -10,6 +10,7 @@
 
 import { statusSucceeded, ZERO_BYTES32, type Hex } from '@0gflow/core';
 import type {
+  AgentHealthRow,
   AgentListingFilter,
   AgentListingRow,
   AgentRow,
@@ -29,6 +30,7 @@ export class MemoryStore implements Store {
   private readonly seals = new Map<string, SealInput>();
   private readonly flows = new Map<string, FlowRow>();
   private readonly listings = new Map<string, AgentListingRow>();
+  private readonly health = new Map<string, AgentHealthRow>();
 
   async getCursor() {
     return this.cursor;
@@ -97,6 +99,27 @@ export class MemoryStore implements Store {
 
   async getAgentListing(agentId: bigint) {
     return this.listings.get(agentId.toString()) ?? null;
+  }
+
+  async recordAgentHealth(
+    agentId: bigint,
+    result: { ok: boolean; latencyMs: number | null; error: string | null; checkedAt: bigint },
+  ) {
+    const previous = this.health.get(agentId.toString());
+    this.health.set(agentId.toString(), {
+      agentId,
+      checkedAt: result.checkedAt,
+      ok: result.ok,
+      latencyMs: result.latencyMs,
+      // A success resets the streak; a failure extends it. One failure is
+      // noise, and the streak is what makes "down" mean something.
+      consecutiveFailures: result.ok ? 0 : (previous?.consecutiveFailures ?? 0) + 1,
+      lastError: result.error,
+    });
+  }
+
+  async getAgentHealth(agentId: bigint) {
+    return this.health.get(agentId.toString()) ?? null;
   }
 
   async listAgentListings(limit: number, offset: number, filter?: AgentListingFilter) {

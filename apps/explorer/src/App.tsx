@@ -206,9 +206,43 @@ interface AgentListing {
   okCount: number;
   runCount: number;
   successRate: number | null;
+  health: {
+    checkedAt: string;
+    ok: boolean;
+    latencyMs: number | null;
+    consecutiveFailures: number;
+    lastError: string | null;
+  } | null;
 }
 
 const KIND_NAMES = ['http', 'contract', '0g-compute', 'flow'];
+
+/**
+ * What the health column says.
+ *
+ * Always with an age, never as a bare tick. This is one indexer's observation
+ * from one vantage at one moment, and a reader cannot check it — presenting it
+ * like the chain-derived columns beside it would be the overclaim the rest of
+ * this project exists to avoid.
+ *
+ * One failure is not "down": an agent restarting looks identical to an agent
+ * abandoned, until it keeps not answering.
+ */
+function healthLabel(health: AgentListing['health']): { text: string; tone: string } {
+  if (health === null) return { text: 'not yet probed', tone: 'muted' };
+
+  const ageMs = Date.now() - Number(health.checkedAt);
+  const age =
+    ageMs < 120_000
+      ? 'just now'
+      : ageMs < 3_600_000
+        ? `${Math.round(ageMs / 60_000)}m ago`
+        : `${Math.round(ageMs / 3_600_000)}h ago`;
+
+  if (health.ok) return { text: `answered ${age}`, tone: 'ok' };
+  if (health.consecutiveFailures < 3) return { text: `no answer ${age}`, tone: 'muted' };
+  return { text: `down — ${health.consecutiveFailures} failed probes`, tone: 'bad' };
+}
 
 /** Wei as OG, for display only. Never used in a comparison. */
 function og(wei: string): string {
@@ -247,6 +281,7 @@ function AgentList() {
               <th>Kind</th>
               <th>Price</th>
               <th>Record</th>
+              <th>Endpoint seen</th>
             </tr>
           </thead>
           <tbody>
@@ -269,6 +304,9 @@ function AgentList() {
                   {agent.stepCount === 0
                     ? 'no runs yet'
                     : `${agent.okCount}/${agent.stepCount} steps ok`}
+                </td>
+                <td className={healthLabel(agent.health).tone}>
+                  {healthLabel(agent.health).text}
                 </td>
               </tr>
             ))}

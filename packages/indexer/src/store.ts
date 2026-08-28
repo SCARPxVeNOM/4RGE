@@ -84,6 +84,39 @@ export interface AgentListingRow {
   readonly blockHash: string;
 }
 
+/**
+ * What a prober observed when it last called a listed agent.
+ *
+ * UNLIKE EVERYTHING ELSE IN THIS STORE, THIS IS NOT VERIFIABLE.
+ *
+ * Receipts, seals and listings are on chain: anyone can recompute them and get
+ * the same answer. This is one indexer's observation from one network vantage
+ * at one moment, and a reader has no way to check it. It exists so a human
+ * browsing the directory can tell a live agent from an abandoned one — not so
+ * anything can be decided on it.
+ *
+ * The executor deliberately does not consume this. When a flow wants to know
+ * whether an agent is up, it probes for itself; that answer is at least
+ * verifiable by doing, and a dead agent produces a Failed step regardless.
+ */
+export interface AgentHealthRow {
+  readonly agentId: bigint;
+  /** Unix ms when the probe ran. */
+  readonly checkedAt: bigint;
+  readonly ok: boolean;
+  /** Round-trip time of the successful probe; null when it failed. */
+  readonly latencyMs: number | null;
+  /**
+   * How many probes in a row have failed.
+   *
+   * Kept because one failure is noise — a restart, a cold start, a blip — and
+   * calling an agent down on the strength of it would be wrong more often
+   * than right.
+   */
+  readonly consecutiveFailures: number;
+  readonly lastError: string | null;
+}
+
 export interface AgentListingFilter {
   readonly activeOnly?: boolean;
   readonly kind?: number;
@@ -130,6 +163,12 @@ export interface Store {
   listRunsForFlow(flowId: Hex, limit: number): Promise<RunRow[]>;
   getAgent(agentId: bigint): Promise<AgentRow | null>;
   getAgentListing(agentId: bigint): Promise<AgentListingRow | null>;
+  /** Records a probe result, carrying the failure streak forward. */
+  recordAgentHealth(
+    agentId: bigint,
+    result: { ok: boolean; latencyMs: number | null; error: string | null; checkedAt: bigint },
+  ): Promise<void>;
+  getAgentHealth(agentId: bigint): Promise<AgentHealthRow | null>;
   listAgentListings(
     limit: number,
     offset: number,

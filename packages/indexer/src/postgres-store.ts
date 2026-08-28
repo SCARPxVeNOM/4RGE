@@ -17,6 +17,7 @@
 import pg from 'pg';
 import { StepStatus, ZERO_BYTES32, type Hex } from '@0gflow/core';
 import type {
+  AgentHealthRow,
   AgentListingFilter,
   AgentListingRow,
   AgentRow,
@@ -111,6 +112,20 @@ CREATE TABLE IF NOT EXISTS agent_listings (
 );
 CREATE INDEX IF NOT EXISTS agent_listings_block  ON agent_listings (block_number);
 CREATE INDEX IF NOT EXISTS agent_listings_active ON agent_listings (active);
+
+-- What a prober observed when it last called a listed agent.
+--
+-- Deliberately NOT rolled back on a reorg, unlike every other table here.
+-- Those rows describe a chain that no longer exists; this one describes
+-- whether an HTTP endpoint answered, which no chain reorganisation changes.
+CREATE TABLE IF NOT EXISTS agent_health (
+  agent_id             NUMERIC PRIMARY KEY,
+  checked_at           NUMERIC NOT NULL,
+  ok                   BOOLEAN NOT NULL,
+  latency_ms           INT,
+  consecutive_failures INT     NOT NULL,
+  last_error           TEXT
+);
 `;
 
 /** Aggregates a run from its steps and seal, mirroring MemoryStore exactly. */
@@ -317,6 +332,52 @@ export class PostgresStore implements Store {
       'UPDATE agent_listings SET active = FALSE, block_number = $2 WHERE agent_id = $1',
       [agentId.toString(), blockNumber.toString()],
     );
+  }
+
+  async recordAgentHealth(
+    agentId: bigint,
+    result: { ok: boolean; latencyMs: number | null; error: string | null; checkedAt: bigint },
+  ): Promise<void> {
+    // The streak is carried forward in SQL rather than read-then-written, so
+    // two probers racing cannot both read zero and both write one.
+    await this.pool.query(
+      `INSERT INTO agent_health
+         (agent_id, checked_at, ok, latency_ms, consecutive_failures, last_error)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (agent_id) DO UPDATE SET
+         checked_at = EXCLUDED.checked_at,
+         ok = EXCLUDED.ok,
+         latency_ms = EXCLUDED.latency_ms,
+         consecutive_failures = CASE
+           WHEN EXCLUDED.ok THEN 0
+           ELSE agent_health.consecutive_failures + 1
+         END,
+         last_error = EXCLUDED.last_error`,
+      [
+        agentId.toString(),
+        result.checkedAt.toString(),
+        result.ok,
+        result.latencyMs,
+        result.ok ? 0 : 1,
+        result.error,
+      ],
+    );
+  }
+
+  async getAgentHealth(agentId: bigint): Promise<AgentHealthRow | null> {
+    const { rows } = await this.pool.query('SELECT * FROM agent_health WHERE agent_id = $1', [
+      agentId.toString(),
+    ]);
+    const row = rows[0] as Record<string, unknown> | undefined;
+    if (row === undefined) return null;
+    return {
+      agentId: BigInt(String(row['agent_id'])),
+      checkedAt: BigInt(String(row['checked_at'])),
+      ok: Boolean(row['ok']),
+      latencyMs: row['latency_ms'] === null ? null : Number(row['latency_ms']),
+      consecutiveFailures: Number(row['consecutive_failures']),
+      lastError: row['last_error'] === null ? null : String(row['last_error']),
+    };
   }
 
   async getAgentListing(agentId: bigint): Promise<AgentListingRow | null> {

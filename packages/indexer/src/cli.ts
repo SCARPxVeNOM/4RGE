@@ -10,6 +10,7 @@
 
 import { GALILEO, requireAddress, requireResolved } from '@0gflow/config';
 import { catchUp } from './ingest.js';
+import { probeAgents } from './health.js';
 import { MemoryStore } from './memory-store.js';
 import { PostgresStore } from './postgres-store.js';
 import { JsonRpcChainReader } from './rpc.js';
@@ -18,6 +19,12 @@ import type { Store } from './store.js';
 /** Galileo finalises quickly; 32 blocks is a deliberately conservative margin. */
 const FINALITY_DEPTH = Number(process.env['ZG_FINALITY_DEPTH'] ?? 32);
 const POLL_MS = Number(process.env['ZG_POLL_MS'] ?? 5_000);
+/**
+ * Agent endpoints are probed far less often than logs are scanned. An agent
+ * is not expected to change availability every few seconds, and probing on the
+ * log cadence would be a lot of traffic aimed at other people's servers.
+ */
+const HEALTH_MS = Number(process.env['ZG_HEALTH_MS'] ?? 120_000);
 
 export async function main(argv: readonly string[]): Promise<number> {
   const once = argv.includes('--once');
@@ -92,8 +99,26 @@ export async function main(argv: readonly string[]): Promise<number> {
   }
 
   console.log(`\n  following head, polling every ${POLL_MS}ms (ctrl-c to stop)`);
+  console.log(`  probing agent endpoints every ${HEALTH_MS}ms`);
+
+  let lastHealth = 0;
   for (;;) {
     await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+
+    if (Date.now() - lastHealth >= HEALTH_MS) {
+      lastHealth = Date.now();
+      try {
+        const health = await probeAgents({ store });
+        if (health.probed > 0) {
+          console.log(`  health: ${health.healthy}/${health.probed} listed agents answered`);
+        }
+      } catch (error) {
+        // Probing other people's servers is the least important thing this
+        // process does, and it must never stop it following the chain.
+        console.error(`  ! health probe: ${(error as Error).message}`);
+      }
+    }
+
     try {
       await pass();
     } catch (error) {
