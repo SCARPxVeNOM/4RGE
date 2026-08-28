@@ -240,11 +240,7 @@ export async function publishAgent(options: PublishOptions): Promise<PublishResu
       data: encodeFunctionData({ abi: IDENTITY_ABI, functionName: 'register', args: [tokenURI] }),
       gasPrice: GAS_PRICE,
     });
-    const minted = await publicClient.waitForTransactionReceipt({
-      hash: mintTx,
-      timeout: RECEIPT_TIMEOUT_MS,
-      pollingInterval: 2_000,
-    });
+    const minted = await waitForReceipt(publicClient, mintTx, 'minting');
     if (minted.status !== 'success') throw new PublishError(`minting reverted: ${mintTx}`);
 
     // The token id comes from the Transfer log rather than from a return
@@ -315,11 +311,7 @@ export async function publishAgent(options: PublishOptions): Promise<PublishResu
     gasPrice: GAS_PRICE,
   });
 
-  const registered = await publicClient.waitForTransactionReceipt({
-    hash: registrationTx,
-    timeout: RECEIPT_TIMEOUT_MS,
-    pollingInterval: 2_000,
-  });
+  const registered = await waitForReceipt(publicClient, registrationTx, 'registration');
   if (registered.status !== 'success') {
     throw new PublishError(`registration reverted: ${registrationTx}`);
   }
@@ -389,6 +381,31 @@ function mintedTokenId(
   throw new PublishError(
     'the mint transaction succeeded but emitted no Transfer to this address, so the new agent id is unknown',
   );
+}
+
+/**
+ * Waits for a receipt, tolerating "not found" until the deadline.
+ *
+ * viem's own helper gives up after a fixed retry count rather than at the
+ * timeout, and on Galileo it does. Here that would report a failed publish for
+ * a registration that succeeded, and the retry would then revert on the
+ * version check — an error pointing nowhere near the cause.
+ */
+async function waitForReceipt(client: PublicClient, hash: `0x${string}`, what: string) {
+  const deadline = Date.now() + RECEIPT_TIMEOUT_MS;
+  for (;;) {
+    try {
+      return await client.getTransactionReceipt({ hash });
+    } catch (error) {
+      if (Date.now() >= deadline) {
+        throw new PublishError(
+          `${what} was submitted as ${hash} but no receipt appeared within ${RECEIPT_TIMEOUT_MS / 1000}s; ` +
+            `check the transaction before retrying: ${(error as Error).message}`,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+    }
+  }
 }
 
 async function fetchSchema(endpoint: string): Promise<JsonValue> {

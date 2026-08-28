@@ -106,6 +106,22 @@ export interface AgentRegistry {
   agentSigner(agentId: bigint): Promise<Hex | null>;
 }
 
+/**
+ * Pays a step's agent out of the run's escrowed budget.
+ *
+ * `ViemEscrow` satisfies this; the interface exists so the executor can be
+ * tested without a chain, and so an operator settling payments some other way
+ * is not forced through ours.
+ *
+ * Both calls are permissionless on chain in the sense that matters: the escrow
+ * decides who gets paid by reading the receipt and the registry, so an
+ * executor calling these cannot misdirect the money.
+ */
+export interface EscrowClient {
+  allocate(runId: Hex, stepIndex: number, amount: bigint): Promise<unknown>;
+  releaseStep(runId: Hex, stepIndex: number, agentSignature: Hex): Promise<unknown>;
+}
+
 export interface TraceStore {
   readonly describe: string;
   put(trace: JsonValue): Promise<{ traceRoot: Hex }>;
@@ -132,6 +148,15 @@ export interface StepResult {
    * fetch the trace back out of storage to collect its own payment evidence.
    */
   readonly outputSignature: Hex | null;
+  /** What happened to this step's payment, when one was attempted. */
+  readonly payment: StepPayment | null;
+}
+
+export interface StepPayment {
+  readonly amount: bigint;
+  readonly released: boolean;
+  /** Why the payment did not go through, when it did not. */
+  readonly error: string | null;
 }
 
 export interface RunResult {
@@ -175,6 +200,11 @@ export interface ExecuteOptions {
    * `requireSignedOutput` records Unattested.
    */
   readonly agents?: AgentRegistry;
+  /**
+   * Settles payment as each step is anchored. Omitted means the executor
+   * anchors and does not pay, which is every run that is not funded.
+   */
+  readonly escrow?: EscrowClient;
   /** Halt remaining waves after a step fails. Defaults to true (§5 policy). */
   readonly failFast?: boolean;
   readonly defaultTimeoutMs?: number;
@@ -219,6 +249,7 @@ export async function executeRun(options: ExecuteOptions): Promise<RunResult> {
     adapters,
     signers,
     agents,
+    escrow,
     failFast = true,
     defaultTimeoutMs = 30_000,
     now = Date.now,
@@ -300,7 +331,13 @@ export async function executeRun(options: ExecuteOptions): Promise<RunResult> {
     // (§7.2), and anchoring concurrently on a single signer invites gaps.
     for (const outcome of settled) {
       const anchor = await chain.anchorStep(outcome.receipt);
-      completed.push({ ...outcome, result: { ...outcome.result, anchor } });
+
+      // Payment comes after anchoring, and it has to: the escrow reads the
+      // step's status from the receipt, so releasing before the receipt exists
+      // would revert on a step the chain has never heard of.
+      const payment = await settleStep(outcome, anchor, { escrow, adapters, runId });
+
+      completed.push({ ...outcome, result: { ...outcome.result, anchor, payment } });
 
       statusById.set(outcome.step.id, outcome.receipt.status);
       if (outcome.output !== null) outputs.set(outcome.step.id, outcome.output);
@@ -580,6 +617,8 @@ async function runStep(args: RunStepArgs): Promise<StepOutcomeInternal> {
       error: null,
       attempts,
       outputSignature,
+      // Filled in after anchoring, by settleStep.
+      payment: null,
     },
   };
 }
@@ -638,6 +677,61 @@ export interface OutputIdentity {
   readonly signature: Hex | null;
   readonly registeredSigner: Hex | null;
   readonly valid: boolean;
+}
+
+/**
+ * Allocates and releases a step's payment.
+ *
+ * Returns null when nothing was attempted, which is the ordinary case: no
+ * escrow configured, no registry to price against, a step that did not
+ * succeed, an agent that did not sign, or a listed price of zero.
+ *
+ * A payment failure never fails the run. The work was done and the receipt is
+ * anchored; whether the money moved is a separate fact, and a funding problem
+ * must not retroactively turn a good step into a bad one. It is recorded
+ * rather than swallowed — silence here would be indistinguishable from an
+ * agent that was paid.
+ */
+async function settleStep(
+  outcome: StepOutcomeInternal,
+  anchor: AnchorReceipt,
+  ctx: { escrow: EscrowClient | undefined; adapters: AdapterResolver | undefined; runId: Hex },
+): Promise<StepPayment | null> {
+  const { escrow, adapters, runId } = ctx;
+  void anchor;
+
+  if (escrow === undefined || adapters === undefined) return null;
+  if (!statusSucceeded(outcome.receipt.status)) return null;
+
+  const signature = outcome.result.outputSignature;
+  if (signature === null) {
+    // The escrow would refuse this, and rightly: the signature is the
+    // authorisation. Saying so beats letting it revert.
+    return {
+      amount: 0n,
+      released: false,
+      error: 'the agent produced no signature, so nothing authorises payment',
+    };
+  }
+
+  let amount: bigint;
+  try {
+    const adapter = await adapters.resolve(BigInt(outcome.step.agent));
+    amount = adapter?.pricePerCall ?? 0n;
+  } catch (error) {
+    return { amount: 0n, released: false, error: `could not read the agent's price: ${(error as Error).message}` };
+  }
+
+  // A free agent is a normal listing, not a failure to pay.
+  if (amount === 0n) return null;
+
+  try {
+    await escrow.allocate(runId, outcome.step.stepIndex, amount);
+    await escrow.releaseStep(runId, outcome.step.stepIndex, signature);
+    return { amount, released: true, error: null };
+  } catch (error) {
+    return { amount, released: false, error: (error as Error).message };
+  }
 }
 
 /**
@@ -765,6 +859,7 @@ async function runSubFlowStep(args: {
       error: null,
       attempts: [],
       outputSignature: null,
+      payment: null,
     },
   };
 }
@@ -858,6 +953,7 @@ async function buildFailed(
       // A step that failed produced no output to sign, so there is nothing
       // payable here. null says that, rather than leaving it ambiguous.
       outputSignature: null,
+      payment: null,
     },
   };
 }
@@ -915,6 +1011,7 @@ async function buildSkipped(
       error: reason,
       attempts: [],
       outputSignature: null,
+      payment: null,
     },
   };
 }

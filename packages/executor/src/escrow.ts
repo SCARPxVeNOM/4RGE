@@ -235,18 +235,41 @@ export class ViemEscrow {
       gasPrice: this.gasPrice,
     });
 
-    // Galileo can take well over viem's default before a receipt is
-    // retrievable, and giving up early reports a failure for a transaction
-    // that succeeded — which is the worst possible answer here, because the
-    // caller may retry a payment that already went out.
-    const receipt = await this.publicClient.waitForTransactionReceipt({
-      hash,
-      timeout: RECEIPT_TIMEOUT_MS,
-      pollingInterval: 2_000,
-    });
+    const receipt = await this.waitForReceipt(hash, name);
     if (receipt.status !== 'success') {
       throw new EscrowError(`${name} reverted on chain: ${hash}`);
     }
     return hash as Hex;
+  }
+
+  /**
+   * Waits for a receipt, tolerating "not found" for the whole window.
+   *
+   * viem's `waitForTransactionReceipt` gives up after a fixed number of
+   * retries rather than at the deadline, and on Galileo it does: a payment
+   * that had already gone through was reported as NOT paid, twice. Reporting a
+   * failure for a transaction that succeeded is the worst answer available
+   * here, because the obvious response is to retry a payment that already
+   * left. (`isReleased` on the escrow stops the double payment; the wrong
+   * report is the damage.)
+   *
+   * Polling `getTransactionReceipt` in our own loop means the only thing that
+   * ends the wait is the deadline.
+   */
+  private async waitForReceipt(hash: `0x${string}`, name: string) {
+    const deadline = Date.now() + RECEIPT_TIMEOUT_MS;
+    for (;;) {
+      try {
+        return await this.publicClient.getTransactionReceipt({ hash });
+      } catch (error) {
+        if (Date.now() >= deadline) {
+          throw new EscrowError(
+            `${name} was submitted as ${hash} but no receipt appeared within ${RECEIPT_TIMEOUT_MS / 1000}s; ` +
+              `it may still land, so check the transaction before retrying: ${(error as Error).message}`,
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 2_000));
+      }
+    }
   }
 }

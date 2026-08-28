@@ -22,7 +22,7 @@ import {
 } from '@0gflow/executor';
 import { ZgStorageTraceStore } from '@0gflow/storage';
 import { createPublicClient, defineChain, http } from 'viem';
-import { keccak256, statusSucceeded, type Hex } from '@0gflow/core';
+import { keccak256, type Hex } from '@0gflow/core';
 
 const AGENT = process.env['MARKETPLACE_AGENT'] ?? '12';
 /** Small enough to run repeatedly on testnet, large enough to see move. */
@@ -107,6 +107,10 @@ async function main(): Promise<number> {
     }),
     adapters,
     agents: new ViemAgentRegistry({ rpcUrl: GALILEO.rpcUrl, adapterRegistry }),
+    // The executor allocates and releases as it anchors. Previously this file
+    // drove that by hand, which meant the payment path only worked for
+    // callers who knew to write the loop.
+    escrow,
   });
 
   // Written so the verify command printed below can re-derive linkage; a
@@ -118,25 +122,18 @@ async function main(): Promise<number> {
     JSON.stringify({ ...SPEC, inputs: { repoUrl: 'https://github.com/0glabs/0g-chain' } }, null, 2),
   );
 
-  // 3. Allocate and release, per successful step.
-  //
-  // Only successes: the escrow would refuse anything else, but asking it to
-  // refuse is a worse report than not asking.
+  // 3. Report what the executor already settled.
   for (const step of result.steps) {
-    if (!statusSucceeded(step.status)) {
-      console.log(`  [${step.stepIndex}] ${step.stepId}: status ${step.status}, not payable`);
-      continue;
+    const paid = step.payment;
+    if (paid === null) {
+      console.log(`  [${step.stepIndex}] ${step.stepId}: nothing to pay`);
+    } else if (paid.released) {
+      console.log(
+        `  [${step.stepIndex}] ${step.stepId}: paid ${og(paid.amount)} against the agent's own signature`,
+      );
+    } else {
+      console.log(`  [${step.stepIndex}] ${step.stepId}: NOT paid — ${paid.error ?? 'no reason given'}`);
     }
-    if (step.outputSignature === null) {
-      console.log(`  [${step.stepIndex}] ${step.stepId}: no signature, so nothing authorises payment`);
-      continue;
-    }
-
-    await escrow.allocate(runId, step.stepIndex, PRICE);
-    console.log(`  [${step.stepIndex}] allocated ${og(PRICE)}`);
-
-    await escrow.releaseStep(runId, step.stepIndex, step.outputSignature);
-    console.log(`  [${step.stepIndex}] released against the agent's own signature`);
   }
 
   // 4. Recover what was not earned. The v1 escrow could not do this for a
