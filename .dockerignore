@@ -1,0 +1,12 @@
+node_modules
+**/node_modules
+**/dist
+.git
+artifacts
+contracts/out
+contracts/cache
+contracts/broadcast
+contracts/lib
+.env
+.env.*
+*.log

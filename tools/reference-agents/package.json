@@ -5,7 +5,8 @@
   "description": "Reference agents implementing the 0G Flow HTTP adapter contract (spec \u00a76.1)",
   "type": "module",
   "scripts": {
-    "serve": "tsx src/serve.ts"
+    "serve": "tsx src/serve.ts",
+    "build": "tsc -b"
   },
   "dependencies": {
     "@0gflow/core": "workspace:*",
@@ -16,8 +17,8 @@
     "tsx": "^4.19.2"
   },
   "exports": {
-    ".": "./src/serve.ts",
-    "./agents": "./src/agents.ts"
+    ".": "./dist/serve.js",
+    "./agents": "./dist/agents.js"
   },
-  "main": "./src/serve.ts"
+  "main": "./dist/serve.js"
 }

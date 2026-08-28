@@ -16,7 +16,11 @@ import type { JsonValue } from '@0gflow/core';
 import { signOutput, type InvokeRequest } from '@0gflow/adapter-sdk';
 import { AGENTS, AGENTS_BY_ID } from './agents.js';
 
-const PORT = Number(process.env['AGENT_PORT'] ?? 8710);
+// PORT is what a host injects; AGENT_PORT stays for local use. Binding
+// loopback in a container makes the service unreachable, so when the platform
+// names a port it also decides the interface.
+const PORT = Number(process.env['PORT'] ?? process.env['AGENT_PORT'] ?? 8710);
+const HOST = process.env['AGENT_HOST'] ?? (process.env['PORT'] === undefined ? '127.0.0.1' : '0.0.0.0');
 
 function send(res: ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body);
@@ -131,11 +135,16 @@ export function createAgentServer() {
   });
 }
 
-if (process.argv[1]?.endsWith('serve.ts') === true || process.env['AGENT_SERVE'] === '1') {
+// Matches both the source entry (tsx src/serve.ts) and the compiled one
+// (node dist/serve.js). Checking only for `.ts` meant the built server started
+// nothing at all and exited silently — which is exactly how it behaves in a
+// container, where there is no tsx.
+const entry = process.argv[1] ?? '';
+if (/serve\.(ts|js)$/.test(entry) || process.env['AGENT_SERVE'] === '1') {
   const server = createAgentServer();
-  server.listen(PORT, () => {
+  server.listen(PORT, HOST, () => {
     const { port } = server.address() as AddressInfo;
-    console.log(`reference agents listening on http://127.0.0.1:${port}`);
+    console.log(`reference agents listening on ${HOST}:${port}`);
     for (const agent of AGENTS) {
       console.log(`  /agents/${agent.id.padEnd(14)} ${agent.description}`);
     }

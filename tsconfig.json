@@ -19,6 +19,7 @@
     { "path": "packages/indexer" },
     { "path": "packages/explorer-api" },
     { "path": "packages/verify" },
-    { "path": "packages/publish" }
+    { "path": "packages/publish" },
+    { "path": "tools/reference-agents" }
   ]
 }
