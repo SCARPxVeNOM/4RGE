@@ -8,8 +8,9 @@
  */
 
 import { api, useAsync, type Health } from '../api.js';
-import { count } from '../format.js';
 import { Stat, StatRow } from '../components/ui.js';
+import { Counted, Reveal } from '../components/motion.js';
+import { FlowViz } from '../components/FlowViz.js';
 
 function Path({
   href,
@@ -46,9 +47,11 @@ export function HomePage() {
           blockchain, so you can check what happened afterwards instead of taking anyone&rsquo;s word
           for it — including ours.
         </p>
+        <FlowViz />
       </header>
 
-      <div className="grid three enter" style={{ animationDelay: '60ms', marginTop: 8 }}>
+      <Reveal delay={40}>
+        <div className="grid three" style={{ marginTop: 8 }}>
         <Path
           href="#/agents"
           title="Find an agent"
@@ -67,9 +70,11 @@ export function HomePage() {
           body="Got a run ID? Look up what was claimed and confirm it against the blockchain yourself."
           action="Verify a run"
         />
-      </div>
+        </div>
+      </Reveal>
 
-      <section className="section enter" style={{ animationDelay: '110ms' }}>
+      <Reveal>
+        <section className="section">
         <h2>How it works</h2>
         <ol className="steps-explainer">
           <li>
@@ -104,21 +109,24 @@ export function HomePage() {
             </div>
           </li>
         </ol>
-      </section>
+        </section>
+      </Reveal>
 
-      <section className="section enter" style={{ animationDelay: '160ms' }}>
+      <Reveal>
+        <section className="section">
         <h2>Live on 0G</h2>
         <StatRow>
-          <Stat label="Jobs recorded" value={count(indexed?.runs ?? 0)} />
-          <Stat label="Steps anchored" value={count(indexed?.steps ?? 0)} />
-          <Stat label="Agents listed" value={count(indexed?.agents ?? 0)} />
+          <Stat label="Jobs recorded" value={<Counted value={indexed?.runs ?? 0} />} />
+          <Stat label="Steps anchored" value={<Counted value={indexed?.steps ?? 0} />} />
+          <Stat label="Agents listed" value={<Counted value={indexed?.agents ?? 0} />} />
           <Stat
             label="Network"
             value={health.data?.network.name ?? '—'}
             note={health.data === null ? undefined : `chain ${health.data.network.chainId}`}
           />
         </StatRow>
-      </section>
+        </section>
+      </Reveal>
     </>
   );
 }

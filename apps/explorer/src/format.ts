@@ -68,9 +68,14 @@ export const kindName = (kind: number): string => KIND_NAMES[kind] ?? `kind ${ki
 export function agentColors(agentId: string): { from: string; to: string } {
   let hash = 0;
   for (const ch of agentId) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-  const hue = hash % 360;
+  // Confined to the violet–magenta–indigo arc around 0G's purple rather than
+  // the full wheel. A free-running hue put lime and teal avatars next to the
+  // brand, which read as a third and fourth signal colour on a page whose
+  // whole colour system is two. 110 degrees is still ample room to tell forty
+  // agents apart at a glance.
+  const hue = 236 + (hash % 110); // 236–345: indigo through violet to magenta
   return {
-    from: `hsl(${hue} 70% 52%)`,
-    to: `hsl(${(hue + 48) % 360} 70% 38%)`,
+    from: `hsl(${hue} 78% 60%)`,
+    to: `hsl(${hue - 34} 72% 38%)`,
   };
 }

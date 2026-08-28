@@ -5,17 +5,29 @@
  * everything on it is a measurement someone can re-take, and the design should
  * read like laboratory equipment rather than a product landing page. So:
  * hairline rules instead of shadows, monospaced tabular figures for anything
- * numeric, uppercase micro-labels with wide tracking, and a single signal
- * colour used only where something has actually been established.
+ * numeric, uppercase micro-labels with wide tracking, and colour used only
+ * where it means something.
  *
- * The accent is deliberately scarce. If every card glowed, the one card that
- * verified would not stand out — and standing out is its whole job.
+ * TWO colours, and the difference between them is the whole point:
+ *
+ *   purple is 0G. Chrome, brand, navigation, anything interactive. It is the
+ *   network's own palette, taken from 0g.ai/brandkit.
+ *
+ *   lime is CONFIRMED. It appears only where something has actually been
+ *   established from chain data. If the brand colour and the verified colour
+ *   were the same, a page that merely looked on-brand would look verified,
+ *   which is precisely the confusion this project exists to prevent.
+ *
+ * The logo is deliberately absent. 0G's guidelines forbid recolouring,
+ * rotating or deforming their mark, and a hand-traced copy animated on scroll
+ * would do all three. Their palette and their typeface are what a brand kit is
+ * published for; their logotype is not ours to redraw.
  */
 
-/* Archivo for headings (industrial, slightly condensed), IBM Plex Mono for
-   every number, label and hash. Two families, no system-font fallback chain
-   pretending to be a typeface. */
-@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+/* Geist Mono is 0G's own monospace, so every number and hash on this site is
+   set in the network's typeface. Archivo carries the headings — Regola Pro,
+   the display face in the brand kit, is licensed and not ours to serve. */
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
 :root {
   /* Surfaces — a near-black with a cold cast, not pure #000, so hairlines and
@@ -32,8 +44,17 @@
   --muted: #858d99;
   --dim: #575e6a;
 
+  /* 0G's palette, from 0g.ai/brandkit. Purple shade is the primary; the
+     lighter steps are what survive on a near-black background, where #9200E1
+     alone is too dark to read as text. */
+  --brand: #b75fff;       /* Purple 1 — interactive, links, focus */
+  --brand-deep: #9200e1;  /* Purple shade — fills and glows */
+  --brand-soft: #cb8aff;  /* Purple 2 */
+  --brand-pale: #e3c1ff;  /* Purple 4 — on saturated fills */
+
   /* Signal. Lime reads as "instrument confirmed" without the crypto-neon
-     connotation of teal or the alarm connotation of green-on-black. */
+     connotation of teal or the alarm connotation of green-on-black. Kept
+     distinct from the brand for the reason given at the top of this file. */
   --ok: #c3f53c;
   --ok-dim: #7d9e28;
   --bad: #ff6257;
@@ -79,10 +100,10 @@ body::before {
 }
 
 a { color: inherit; text-decoration: none; }
-a:hover { color: var(--ok); }
+a:hover { color: var(--brand); }
 
 code, .mono, .num {
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: 'Geist Mono', 'IBM Plex Mono', monospace;
   font-variant-numeric: tabular-nums;
 }
 
@@ -124,7 +145,7 @@ code { font-size: 0.92em; color: var(--muted); }
 }
 .brand:hover { color: inherit; }
 .brand .mark {
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: 'Geist Mono', 'IBM Plex Mono', monospace;
   font-weight: 600;
   color: var(--bg);
   background: var(--ok);
@@ -137,7 +158,7 @@ code { font-size: 0.92em; color: var(--muted); }
 
 .topnav { display: flex; gap: 4px; }
 .topnav a {
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: 'Geist Mono', 'IBM Plex Mono', monospace;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: var(--tracking);
@@ -159,7 +180,7 @@ code { font-size: 0.92em; color: var(--muted); }
   display: flex;
   align-items: center;
   gap: 8px;
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: 'Geist Mono', 'IBM Plex Mono', monospace;
   font-size: 11px;
   color: var(--dim);
   letter-spacing: 0.03em;
@@ -218,7 +239,7 @@ footer {
 }
 .stat { background: var(--bg-raised); padding: 16px 18px; }
 .stat .label {
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: 'Geist Mono', 'IBM Plex Mono', monospace;
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: var(--tracking);
@@ -227,7 +248,7 @@ footer {
   margin-bottom: 6px;
 }
 .stat .value {
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: 'Geist Mono', 'IBM Plex Mono', monospace;
   font-variant-numeric: tabular-nums;
   font-size: 25px;
   font-weight: 500;
@@ -251,7 +272,7 @@ footer {
 .toolbar .spacer { flex: 1; }
 
 .pill {
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: 'Geist Mono', 'IBM Plex Mono', monospace;
   font-size: 10.5px;
   text-transform: uppercase;
   letter-spacing: var(--tracking);
@@ -280,7 +301,7 @@ footer {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: 'Geist Mono', 'IBM Plex Mono', monospace;
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -349,7 +370,7 @@ a.card:hover::before { transform: scaleY(1); }
   border-radius: var(--radius);
   display: grid;
   place-items: center;
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: 'Geist Mono', 'IBM Plex Mono', monospace;
   font-weight: 600;
   font-size: 15px;
   color: rgba(0, 0, 0, 0.72);
@@ -368,7 +389,7 @@ a.card:hover::before { transform: scaleY(1); }
 }
 .agent-card .price {
   text-align: right;
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: 'Geist Mono', 'IBM Plex Mono', monospace;
   font-variant-numeric: tabular-nums;
   font-size: 15px;
   font-weight: 500;
@@ -381,7 +402,7 @@ a.card:hover::before { transform: scaleY(1); }
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: 'Geist Mono', 'IBM Plex Mono', monospace;
   font-size: 11px;
   color: var(--muted);
 }
@@ -393,7 +414,7 @@ a.card:hover::before { transform: scaleY(1); }
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: 'Geist Mono', 'IBM Plex Mono', monospace;
   font-size: 11px;
   color: var(--dim);
   margin-bottom: 10px;
@@ -428,7 +449,7 @@ a.card:hover::before { transform: scaleY(1); }
 .section { margin: 40px 0 0; }
 .section > h2 {
   font-size: 12px;
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: 'Geist Mono', 'IBM Plex Mono', monospace;
   text-transform: uppercase;
   letter-spacing: var(--tracking);
   color: var(--dim);
@@ -452,18 +473,18 @@ a.card:hover::before { transform: scaleY(1); }
 
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 8px 20px; align-items: baseline; }
 .kv dt {
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: 'Geist Mono', 'IBM Plex Mono', monospace;
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: var(--tracking);
   color: var(--dim);
 }
-.kv dd { margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; word-break: break-all; }
+.kv dd { margin: 0; font-family: 'Geist Mono', 'IBM Plex Mono', monospace; font-size: 12.5px; word-break: break-all; }
 
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th {
   text-align: left;
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: 'Geist Mono', 'IBM Plex Mono', monospace;
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: var(--tracking);
@@ -474,7 +495,7 @@ th {
 }
 td { padding: 11px 12px 11px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
 tbody tr:hover td { background: rgba(255, 255, 255, 0.017); }
-td.num, th.num { font-family: 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; }
+td.num, th.num { font-family: 'Geist Mono', 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; }
 
 .table-wrap { overflow-x: auto; }
 
@@ -490,7 +511,7 @@ td.num, th.num { font-family: 'IBM Plex Mono', monospace; font-variant-numeric: 
 .info { color: var(--info); }
 
 .label {
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: 'Geist Mono', 'IBM Plex Mono', monospace;
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: var(--tracking);
@@ -500,7 +521,7 @@ td.num, th.num { font-family: 'IBM Plex Mono', monospace; font-variant-numeric: 
 .copyable { display: flex; align-items: center; gap: 8px; }
 .copyable code { color: var(--fg); word-break: break-all; }
 .copyable button {
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: 'Geist Mono', 'IBM Plex Mono', monospace;
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -515,7 +536,7 @@ td.num, th.num { font-family: 'IBM Plex Mono', monospace; font-variant-numeric: 
 .copyable button:hover { color: var(--ok); border-color: var(--ok-dim); }
 
 pre.cmd {
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: 'Geist Mono', 'IBM Plex Mono', monospace;
   font-size: 12px;
   background: var(--bg);
   border: 1px solid var(--line);
@@ -577,7 +598,7 @@ pre.cmd .flag { color: var(--fg); }
 .field .label { display: block; margin-bottom: 7px; }
 .field input {
   width: 100%;
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: 'Geist Mono', 'IBM Plex Mono', monospace;
   font-size: 13px;
   color: var(--fg);
   background: var(--bg);
@@ -588,20 +609,21 @@ pre.cmd .flag { color: var(--fg); }
 }
 .field input:focus {
   outline: none;
-  border-color: var(--ok-dim);
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgb(146 0 225 / 0.22);
 }
 .field input::placeholder { color: var(--dim); }
 .field .dim { display: block; margin-top: 7px; font-size: 12px; line-height: 1.55; }
 
 .pill.primary {
   display: inline-block;
-  background: var(--ok);
-  border-color: var(--ok);
+  background: var(--brand);
+  border-color: var(--brand);
   color: var(--bg);
   font-weight: 600;
   text-decoration: none;
 }
-.pill.primary:hover { background: var(--fg); border-color: var(--fg); color: var(--bg); }
+.pill.primary:hover { background: var(--brand-soft); border-color: var(--brand-soft); color: var(--bg); }
 /* Disabled has to look disabled without looking broken: the accent drains out,
    the cursor says so, and the text stays readable. */
 .pill.primary:disabled {
@@ -621,7 +643,7 @@ pre.cmd .flag { color: var(--fg); }
   font-size: 13px;
 }
 .check .mark {
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: 'Geist Mono', 'IBM Plex Mono', monospace;
   font-size: 10px;
   letter-spacing: var(--tracking);
   padding-top: 2px;
@@ -690,13 +712,13 @@ pre.cmd .flag { color: var(--fg); }
 }
 .card.path .go {
   margin-top: 18px;
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: 'Geist Mono', 'IBM Plex Mono', monospace;
   font-size: 10.5px;
   text-transform: uppercase;
   letter-spacing: var(--tracking);
-  color: var(--ok);
+  color: var(--brand);
 }
-.card.path:hover .go { color: var(--fg); }
+.card.path:hover .go { color: var(--brand-soft); }
 
 /* Numbered, because the order is the explanation. */
 .steps-explainer {
@@ -714,9 +736,9 @@ pre.cmd .flag { color: var(--fg); }
   align-items: start;
 }
 .steps-explainer .n {
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: 'Geist Mono', 'IBM Plex Mono', monospace;
   font-size: 12px;
-  color: var(--ok);
+  color: var(--brand);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   width: 28px;
@@ -735,4 +757,185 @@ pre.cmd .flag { color: var(--fg); }
   color: var(--muted);
   font-size: 13.5px;
   line-height: 1.6;
+}
+
+/* --------------------------------------------------------------------------
+   0G — the network's colour, moving
+
+   One large, slow, out-of-focus light source behind the page. It is not
+   decoration for its own sake: it gives the near-black substrate depth so the
+   hairline panels read as sitting *on* something, and it puts 0G's purple on
+   screen at a scale no accent border could.
+
+   Deliberately slow — 34s and 46s. Anything faster reads as a loading state,
+   and a page about settled facts should not look like it is still thinking.
+   -------------------------------------------------------------------------- */
+
+.aurora {
+  position: fixed;
+  inset: -20vmax;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  /* Kept off the main thread, and out of the way of hit-testing. */
+  contain: strict;
+}
+.aurora i {
+  position: absolute;
+  display: block;
+  border-radius: 50%;
+  /* A big blur is what makes this read as light rather than as a circle. */
+  filter: blur(90px);
+  opacity: 0.5;
+  will-change: transform;
+}
+.aurora i:nth-child(1) {
+  width: 46vmax; height: 46vmax;
+  top: -6vmax; left: 8vmax;
+  background: radial-gradient(circle, rgb(146 0 225 / 0.62), transparent 68%);
+  animation: drift-a 34s ease-in-out infinite alternate;
+}
+.aurora i:nth-child(2) {
+  width: 38vmax; height: 38vmax;
+  top: 2vmax; right: 6vmax;
+  background: radial-gradient(circle, rgb(183 95 255 / 0.40), transparent 68%);
+  animation: drift-b 46s ease-in-out infinite alternate;
+}
+.aurora i:nth-child(3) {
+  width: 30vmax; height: 30vmax;
+  top: 34vmax; left: 38%;
+  background: radial-gradient(circle, rgb(203 138 255 / 0.22), transparent 70%);
+  animation: drift-c 40s ease-in-out infinite alternate;
+}
+@keyframes drift-a { to { transform: translate3d(9vmax, 7vmax, 0) scale(1.16); } }
+@keyframes drift-b { to { transform: translate3d(-11vmax, 5vmax, 0) scale(0.86); } }
+@keyframes drift-c { to { transform: translate3d(6vmax, -8vmax, 0) scale(1.2); } }
+
+/* Everything else sits above the light. */
+.shell { position: relative; z-index: 1; }
+
+/* --------------------------------------------------------------------------
+   The wordmark
+
+   Ours, not 0G's. A monospace "0G" in a purple tile, which is a lockup we are
+   free to animate; their actual logotype is not.
+   -------------------------------------------------------------------------- */
+
+.brand .mark {
+  background: linear-gradient(140deg, var(--brand), var(--brand-deep));
+  color: #fff;
+  position: relative;
+  overflow: hidden;
+}
+/* A specular sweep on hover — the one flourish in the chrome. */
+.brand .mark::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 38%, rgb(255 255 255 / 0.55) 50%, transparent 62%);
+  transform: translateX(-130%);
+}
+.brand:hover .mark::after { animation: sweep-mark 0.7s ease; }
+@keyframes sweep-mark { to { transform: translateX(130%); } }
+
+/* --------------------------------------------------------------------------
+   Scroll reveal
+
+   Applied by an IntersectionObserver rather than on a timer, so a section
+   animates when it is looked at instead of while it is off screen.
+   -------------------------------------------------------------------------- */
+
+[data-reveal] {
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity 0.6s cubic-bezier(0.2, 0.7, 0.3, 1), transform 0.6s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+[data-reveal].shown { opacity: 1; transform: none; }
+
+/* --------------------------------------------------------------------------
+   The hero diagram — four stages of a job, drawn as it is explained
+   -------------------------------------------------------------------------- */
+
+.flowviz {
+  width: 100%;
+  max-width: 760px;
+  margin: 34px 0 0;
+  overflow: visible;
+}
+.flowviz .track { stroke: var(--line-strong); stroke-width: 1.5; fill: none; }
+.flowviz .live {
+  stroke: var(--brand);
+  stroke-width: 2;
+  fill: none;
+  stroke-linecap: round;
+  stroke-dasharray: 8 320;
+  filter: drop-shadow(0 0 6px rgb(183 95 255 / 0.85));
+  animation: run-line 4.2s linear infinite;
+}
+@keyframes run-line { to { stroke-dashoffset: -328; } }
+
+.flowviz .node { fill: var(--bg-raised); stroke: var(--line-strong); stroke-width: 1.5; }
+.flowviz .node-on { fill: var(--brand-deep); stroke: var(--brand); }
+/* The last node is the receipt, and it is the only lime thing here: the point
+   of the diagram is that the sequence ends in something checkable. */
+.flowviz .node-done { fill: transparent; stroke: var(--ok); }
+.flowviz .glyph { fill: var(--fg); font-family: 'Geist Mono', monospace; font-size: 11px; }
+.flowviz .cap {
+  fill: var(--muted);
+  font-family: 'Geist Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.flowviz .ring {
+  fill: none;
+  stroke: var(--ok);
+  stroke-width: 1.5;
+  transform-origin: 682px 40px;
+  animation: ring-out 2.8s ease-out infinite;
+}
+@keyframes ring-out {
+  0%   { r: 18; opacity: 0.9; }
+  70%  { r: 34; opacity: 0; }
+  100% { r: 34; opacity: 0; }
+}
+
+/* --------------------------------------------------------------------------
+   Depth on hover — a light under the card rather than a shadow over it
+   -------------------------------------------------------------------------- */
+
+.card { position: relative; }
+.card.path::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.28s ease;
+  background: radial-gradient(120% 90% at 50% 0%, rgb(146 0 225 / 0.20), transparent 62%);
+}
+.card.path:hover {
+  border-color: rgb(183 95 255 / 0.55);
+  transform: translateY(-3px);
+}
+.card.path:hover::after { opacity: 1; }
+.card.path { transition: border-color 0.22s ease, transform 0.28s cubic-bezier(0.2, 0.7, 0.3, 1); }
+
+/* Numbers that count up have to hold their width, or the layout shivers. */
+.stat .value { font-variant-numeric: tabular-nums; }
+
+/* --------------------------------------------------------------------------
+   Motion is a preference, and this whole section respects it
+   -------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora i,
+  .flowviz .live,
+  .flowviz .ring,
+  .brand:hover .mark::after { animation: none; }
+  /* Still shown, just not moved into place — hiding content from someone who
+     asked for less motion would be a worse outcome than the motion. */
+  [data-reveal] { opacity: 1; transform: none; transition: none; }
+  .card.path:hover { transform: none; }
 }

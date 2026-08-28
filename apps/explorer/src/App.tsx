@@ -100,7 +100,14 @@ export default function App() {
   const contracts = health.data?.contracts ?? {};
 
   return (
-    <div className="shell">
+    <>
+      {/* Behind the whole application, fixed, and inert. */}
+      <div className="aurora" aria-hidden="true">
+        <i />
+        <i />
+        <i />
+      </div>
+      <div className="shell">
       <TopBar route={route} health={health.data} />
       <main key={route.join('/')}>{page}</main>
       <footer>
@@ -132,6 +139,7 @@ export default function App() {
           )}
         </p>
       </footer>
-    </div>
+      </div>
+    </>
   );
 }
