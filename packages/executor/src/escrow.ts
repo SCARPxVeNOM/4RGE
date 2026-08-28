@@ -31,6 +31,8 @@ export class EscrowError extends Error {
 }
 
 const GAS_PRICE = 5_000_000_000n;
+/** How long to wait for a receipt before treating the outcome as unknown. */
+const RECEIPT_TIMEOUT_MS = 180_000;
 
 const ESCROW_ABI = [
   {
@@ -233,7 +235,15 @@ export class ViemEscrow {
       gasPrice: this.gasPrice,
     });
 
-    const receipt = await this.publicClient.waitForTransactionReceipt({ hash });
+    // Galileo can take well over viem's default before a receipt is
+    // retrievable, and giving up early reports a failure for a transaction
+    // that succeeded — which is the worst possible answer here, because the
+    // caller may retry a payment that already went out.
+    const receipt = await this.publicClient.waitForTransactionReceipt({
+      hash,
+      timeout: RECEIPT_TIMEOUT_MS,
+      pollingInterval: 2_000,
+    });
     if (receipt.status !== 'success') {
       throw new EscrowError(`${name} reverted on chain: ${hash}`);
     }

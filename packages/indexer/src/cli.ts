@@ -30,7 +30,11 @@ export async function main(argv: readonly string[]): Promise<number> {
     ? (network.contracts.executionReceiptsV2 ?? requireAddress(network, 'executionReceipts'))
     : requireAddress(network, 'executionReceipts');
   const adapterRegistry = network.contracts.agentAdapterRegistryV2 ?? undefined;
-  const deploymentBlock = BigInt(network.deploymentBlock ?? 0);
+  // Following v2 means starting where v2 was deployed. Using v1's block would
+  // scan 1.4M blocks over which the contracts did not exist.
+  const deploymentBlock = BigInt(
+    (useV2 ? (network.deploymentBlockV2 ?? network.deploymentBlock) : network.deploymentBlock) ?? 0,
+  );
 
   let store: Store;
   if (useMemory) {

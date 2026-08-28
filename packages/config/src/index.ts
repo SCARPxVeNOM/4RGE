@@ -80,6 +80,16 @@ export interface Network {
   readonly contracts: ContractAddresses;
   /** Block to backfill the indexer from (§8.1). Set at deployment. */
   readonly deploymentBlock: number | null;
+  /**
+   * Where the v2 contracts were deployed.
+   *
+   * An indexer told to follow v2 must start here, not at `deploymentBlock`.
+   * The two are 1.4 million blocks apart, and scanning that gap is not a slow
+   * correct answer — it is minutes of wasted RPC over a range where the
+   * contracts did not exist, during which the directory is empty and looks
+   * broken.
+   */
+  readonly deploymentBlockV2: number | null;
 }
 
 const NO_CONTRACTS: ContractAddresses = {
@@ -147,6 +157,7 @@ export const GALILEO: Network = {
   resolved: true,
   contracts: GALILEO_CONTRACTS,
   deploymentBlock: 50316677,
+  deploymentBlockV2: 51785369,
 };
 
 /**
@@ -173,6 +184,7 @@ export const ARISTOTLE: Network = {
     'confirm the Aristotle chain id, RPC endpoint and storage indexer URL, and check whether the ERC-8004 registries are already deployed at their canonical addresses, before enabling this network (spec §12)',
   contracts: NO_CONTRACTS,
   deploymentBlock: null,
+  deploymentBlockV2: null,
 };
 
 const NETWORKS: Readonly<Record<NetworkName, Network>> = {

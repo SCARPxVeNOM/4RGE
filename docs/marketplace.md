@@ -24,6 +24,22 @@ executor, and nothing about a marketplace changes that — sharing it means a ru
 id is unique across both receipt contracts, so a v1 run and a v2 run can never
 collide.
 
+## Running publicly
+
+| | |
+|---|---|
+| Agent | https://agents-production-1dcf.up.railway.app/agents/audit |
+| Explorer | https://explorer-production-25c8.up.railway.app |
+
+Three Railway services from one image — the agent server, the explorer (API
+and UI on one origin), and an indexer following the chain into Postgres.
+
+The agent's signing key is generated fresh for the deployment and holds no
+funds. That is the point of separating `signer` from `payTo` and from the
+identity owner: a hot key on someone else's infrastructure signs outputs and
+can do nothing else. The funded key never leaves the developer's machine —
+publishing is a local command.
+
 ## The three problems this solves
 
 **Nobody could publish an agent.** `AgentAdapterRegistry` was deployed and
@@ -53,8 +69,12 @@ ZG_PRIVATE_KEY=0x… node packages/publish/dist/cli.js \
 ```
 
 Minted identity **12**, stored the schema on 0G Storage at
-`0xcf0c701e…`, and listed it. Re-publishing to a new endpoint bumped it to
-version 4 without re-minting.
+`0xcf0c701e…`, and listed it. Re-publishing to a new endpoint bumps the
+version without re-minting; it is on version 5, now pointing at the Railway
+deployment.
+
+Conformance runs against the endpoint as published, so the checks above passed
+over the public internet rather than against localhost.
 
 Conformance runs *before* anything is minted or written. A failing agent is
 refused: §6.4 makes passing the criterion for composability, and a flow that
@@ -86,9 +106,11 @@ does not list.
 
 ### Payment
 
-`0x672b5c89…` — funded 0.002 OG with a one-hour deadline, released 0.001 OG
-against the agent's own signature, refunded the unspent remainder. `cast
-balance` on the payee reads exactly `1000000000000000` wei, up from zero.
+`0xc8d3ee7d…` — against the publicly hosted agent. Funded 0.002 OG with a
+one-hour deadline, released 0.001 OG against the agent's own signature,
+refunded the unspent remainder. `cast balance` on the payee reads exactly
+`1000000000000000` wei, up from zero, and the run verifies as
+`signed ✓ by agent 12 (0x8559e76e…)`.
 
 The executor submits the release and still cannot misdirect it: the escrow
 reads the payee and signing key from the registry, so funding a run does not
@@ -122,5 +144,6 @@ receipt for work four parties did.
   the recorded trace rather than by re-running the agent, so a verified run
   stays verified.
 - **A listing's endpoint is whatever its owner wrote.** The registry checks
-  ownership, not reachability, and the published agents above point at
-  `127.0.0.1` because they were run locally.
+  ownership, not reachability. `publish` runs the conformance suite against the
+  endpoint before listing it, so it was reachable at least once — but nothing
+  re-checks it afterwards, and a listing can go stale.

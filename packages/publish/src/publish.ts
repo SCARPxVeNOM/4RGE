@@ -79,6 +79,13 @@ export interface PublishResult {
 
 /** Galileo rejects transactions below a minimum tip; viem's estimate lands under it. */
 const GAS_PRICE = 5_000_000_000n;
+/**
+ * Galileo can take well over viem's default to surface a receipt. Giving up
+ * early would report a failed publish for a registration that succeeded, and
+ * the retry would then revert on the version check — an error pointing
+ * nowhere near the cause.
+ */
+const RECEIPT_TIMEOUT_MS = 180_000;
 
 const IDENTITY_ABI = [
   {
@@ -233,7 +240,11 @@ export async function publishAgent(options: PublishOptions): Promise<PublishResu
       data: encodeFunctionData({ abi: IDENTITY_ABI, functionName: 'register', args: [tokenURI] }),
       gasPrice: GAS_PRICE,
     });
-    const minted = await publicClient.waitForTransactionReceipt({ hash: mintTx });
+    const minted = await publicClient.waitForTransactionReceipt({
+      hash: mintTx,
+      timeout: RECEIPT_TIMEOUT_MS,
+      pollingInterval: 2_000,
+    });
     if (minted.status !== 'success') throw new PublishError(`minting reverted: ${mintTx}`);
 
     // The token id comes from the Transfer log rather than from a return
@@ -304,7 +315,11 @@ export async function publishAgent(options: PublishOptions): Promise<PublishResu
     gasPrice: GAS_PRICE,
   });
 
-  const registered = await publicClient.waitForTransactionReceipt({ hash: registrationTx });
+  const registered = await publicClient.waitForTransactionReceipt({
+    hash: registrationTx,
+    timeout: RECEIPT_TIMEOUT_MS,
+    pollingInterval: 2_000,
+  });
   if (registered.status !== 'success') {
     throw new PublishError(`registration reverted: ${registrationTx}`);
   }
