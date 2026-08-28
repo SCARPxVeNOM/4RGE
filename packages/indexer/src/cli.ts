@@ -23,7 +23,13 @@ export async function main(argv: readonly string[]): Promise<number> {
   const once = argv.includes('--once');
   const useMemory = argv.includes('--memory');
   const network = requireResolved(GALILEO);
-  const contract = requireAddress(network, 'executionReceipts');
+  // --v2 indexes the marketplace deployment. v1 stays the default so an
+  // existing indexer keeps serving the runs it already has.
+  const useV2 = argv.includes('--v2');
+  const contract = useV2
+    ? (network.contracts.executionReceiptsV2 ?? requireAddress(network, 'executionReceipts'))
+    : requireAddress(network, 'executionReceipts');
+  const adapterRegistry = network.contracts.agentAdapterRegistryV2 ?? undefined;
   const deploymentBlock = BigInt(network.deploymentBlock ?? 0);
 
   let store: Store;
@@ -45,6 +51,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   console.log(`0G Flow indexer`);
   console.log(`  network   ${network.displayName} (${network.chainId})`);
   console.log(`  contract  ${contract}`);
+  console.log(`  registry  ${adapterRegistry ?? 'not configured — no agent directory'}`);
   console.log(`  store     ${useMemory ? 'memory' : 'postgres'}`);
   console.log(`  from      block ${deploymentBlock}`);
   console.log(`  finality  ${FINALITY_DEPTH} blocks\n`);
@@ -54,13 +61,14 @@ export async function main(argv: readonly string[]): Promise<number> {
       store,
       chain,
       contract,
+      ...(adapterRegistry === undefined ? {} : { adapterRegistry }),
       deploymentBlock,
       finalityDepth: FINALITY_DEPTH,
       onProgress: (r) => {
-        if (r.steps > 0 || r.seals > 0 || r.reorgedFrom !== null) {
+        if (r.steps > 0 || r.seals > 0 || r.listings > 0 || r.reorgedFrom !== null) {
           const reorg = r.reorgedFrom === null ? '' : `  REORG from ${r.reorgedFrom}`;
           console.log(
-            `  ${r.scannedFrom}–${r.scannedTo}  ${r.steps} step(s)  ${r.seals} seal(s)${reorg}`,
+            `  ${r.scannedFrom}–${r.scannedTo}  ${r.steps} step(s)  ${r.seals} seal(s)  ${r.listings} listing(s)${reorg}`,
           );
         }
       },

@@ -121,3 +121,114 @@ export function decodeRunSealed(log: RawLog): Seal {
     blockNumber: BigInt(log.blockNumber),
   };
 }
+
+// ---------------------------------------------------------------------------
+// The marketplace registry — AgentAdapterRegistryV2
+// ---------------------------------------------------------------------------
+
+export const ADAPTER_REGISTERED_SIGNATURE =
+  'AdapterRegistered(uint256,address,uint8,string,bytes32,uint32,bool,address,address,uint256,string)';
+export const ADAPTER_DEACTIVATED_SIGNATURE = 'AdapterDeactivated(uint256,uint32)';
+
+export const ADAPTER_REGISTERED_TOPIC = topicOf(ADAPTER_REGISTERED_SIGNATURE);
+export const ADAPTER_DEACTIVATED_TOPIC = topicOf(ADAPTER_DEACTIVATED_SIGNATURE);
+
+export interface AdapterListing {
+  readonly agentId: bigint;
+  readonly owner: Hex;
+  readonly kind: number;
+  readonly endpoint: string;
+  readonly schemaRoot: Hex;
+  readonly version: number;
+  readonly active: boolean;
+  readonly payTo: Hex;
+  readonly signer: Hex;
+  readonly pricePerCall: bigint;
+  readonly metadataURI: string;
+  readonly txHash: Hex;
+  readonly blockNumber: bigint;
+  readonly logIndex: number;
+}
+
+const asAddress = (w: string): Hex => `0x${w.slice(24).toLowerCase()}`;
+
+/**
+ * Reads a dynamic `string` whose head word sits at `index`.
+ *
+ * Unlike the receipt events, this one is not all static types: the head word
+ * holds a byte offset from the start of the data section, and the tail there
+ * holds a length followed by the UTF-8 bytes. Offsets are validated against
+ * the actual data length rather than trusted — a truncated log would otherwise
+ * decode into a plausible-looking short string, and a directory entry with a
+ * silently truncated endpoint is worse than one that fails to decode.
+ */
+function dynamicString(data: string, index: number, field: string): string {
+  const body = data.startsWith('0x') ? data.slice(2) : data;
+  const offset = Number(asUint(word(data, index, `${field} offset`)));
+  if (offset % 32 !== 0 || offset * 2 + 64 > body.length) {
+    throw new DecodeError(`${field}: offset ${offset} is outside the log data`);
+  }
+
+  const lengthHex = body.slice(offset * 2, offset * 2 + 64);
+  const length = Number(BigInt(`0x${lengthHex}`));
+  const start = offset * 2 + 64;
+  if (start + length * 2 > body.length) {
+    throw new DecodeError(
+      `${field}: claims ${length} bytes but only ${(body.length - start) / 2} remain`,
+    );
+  }
+
+  const bytes = new Uint8Array(length);
+  for (let i = 0; i < length; i++) {
+    bytes[i] = parseInt(body.slice(start + i * 2, start + i * 2 + 2), 16);
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+export function decodeAdapterRegistered(log: RawLog): AdapterListing {
+  requireTopic(log, ADAPTER_REGISTERED_TOPIC, 3, 'AdapterRegistered');
+
+  const kind = asUint(word(log.data, 0, 'kind'));
+  const version = asUint(word(log.data, 3, 'version'));
+  if (kind > 0xffn) throw new DecodeError(`kind exceeds uint8: ${kind}`);
+  if (version > 0xffffffffn) throw new DecodeError(`version exceeds uint32: ${version}`);
+
+  return {
+    agentId: asUint(log.topics[1]!.slice(2)),
+    owner: asAddress(log.topics[2]!.slice(2)),
+    kind: Number(kind),
+    // Head words, in declaration order of the non-indexed parameters:
+    //   0 kind · 1 endpoint(offset) · 2 schemaRoot · 3 version · 4 active
+    //   5 payTo · 6 signer · 7 pricePerCall · 8 metadataURI(offset)
+    // A dynamic parameter still occupies exactly one head word, so the two
+    // strings do not shift the words after them.
+    endpoint: dynamicString(log.data, 1, 'endpoint'),
+    schemaRoot: asBytes32(word(log.data, 2, 'schemaRoot')),
+    version: Number(version),
+    active: asUint(word(log.data, 4, 'active')) !== 0n,
+    payTo: asAddress(word(log.data, 5, 'payTo')),
+    signer: asAddress(word(log.data, 6, 'signer')),
+    pricePerCall: asUint(word(log.data, 7, 'pricePerCall')),
+    metadataURI: dynamicString(log.data, 8, 'metadataURI'),
+    txHash: log.transactionHash.toLowerCase() as Hex,
+    blockNumber: BigInt(log.blockNumber),
+    logIndex: Number(BigInt(log.logIndex)),
+  };
+}
+
+export interface AdapterDeactivation {
+  readonly agentId: bigint;
+  readonly version: number;
+  readonly txHash: Hex;
+  readonly blockNumber: bigint;
+}
+
+export function decodeAdapterDeactivated(log: RawLog): AdapterDeactivation {
+  requireTopic(log, ADAPTER_DEACTIVATED_TOPIC, 2, 'AdapterDeactivated');
+  return {
+    agentId: asUint(log.topics[1]!.slice(2)),
+    version: Number(asUint(word(log.data, 0, 'version'))),
+    txHash: log.transactionHash.toLowerCase() as Hex,
+    blockNumber: BigInt(log.blockNumber),
+  };
+}

@@ -59,6 +59,36 @@ export interface FlowRow {
   readonly blockHash: string;
 }
 
+/**
+ * A marketplace listing, as published in `AgentAdapterRegistryV2`.
+ *
+ * Separate from `AgentRow`, which is derived statistics over anchored steps.
+ * These are two genuinely different things and conflating them would hide the
+ * gap that matters: a freshly published agent has a listing and no statistics
+ * at all, and until now such an agent was invisible — it appeared in the
+ * explorer only after it had already been hired.
+ */
+export interface AgentListingRow {
+  readonly agentId: bigint;
+  readonly owner: Hex;
+  readonly kind: number;
+  readonly endpoint: string;
+  readonly schemaRoot: Hex;
+  readonly version: number;
+  readonly active: boolean;
+  readonly payTo: Hex;
+  readonly signer: Hex;
+  readonly pricePerCall: bigint;
+  readonly metadataURI: string;
+  readonly blockNumber: bigint;
+  readonly blockHash: string;
+}
+
+export interface AgentListingFilter {
+  readonly activeOnly?: boolean;
+  readonly kind?: number;
+}
+
 export interface SealInput {
   readonly runId: Hex;
   readonly chainRoot: Hex;
@@ -84,6 +114,14 @@ export interface Store {
   upsertStep(step: StepRow): Promise<void>;
   upsertSeal(seal: SealInput): Promise<void>;
   upsertFlow(flow: FlowRow): Promise<void>;
+  /**
+   * Records a listing. Keyed on agentId, and only ever moving forward: the
+   * registry refuses a version that does not increase, so an out-of-order log
+   * would otherwise overwrite the current listing with a stale one.
+   */
+  upsertAgentListing(listing: AgentListingRow): Promise<void>;
+  /** Marks a listing inactive without touching the rest of it. */
+  deactivateAgentListing(agentId: bigint, blockNumber: bigint): Promise<void>;
 
   getRun(runId: Hex): Promise<RunRow | null>;
   getSteps(runId: Hex): Promise<StepRow[]>;
@@ -91,6 +129,12 @@ export interface Store {
   getFlow(flowId: Hex): Promise<FlowRow | null>;
   listRunsForFlow(flowId: Hex, limit: number): Promise<RunRow[]>;
   getAgent(agentId: bigint): Promise<AgentRow | null>;
+  getAgentListing(agentId: bigint): Promise<AgentListingRow | null>;
+  listAgentListings(
+    limit: number,
+    offset: number,
+    filter?: AgentListingFilter,
+  ): Promise<AgentListingRow[]>;
   listRunsForAgent(agentId: bigint, limit: number): Promise<RunRow[]>;
   stats(): Promise<{ runs: number; steps: number; flows: number; agents: number; cursor: bigint }>;
 

@@ -139,23 +139,86 @@ export function createServer(options: ServerOptions): FastifyInstance {
     return serialise({ flow, runs: runs.map(summarise) });
   });
 
+  /**
+   * The marketplace directory.
+   *
+   * Listings come from the registry, not from anchored steps, which is the
+   * whole point: an agent published a minute ago has no receipts yet, and
+   * before this endpoint existed it was invisible until someone had already
+   * hired it. Discovery has to come first.
+   */
+  app.get('/api/agents', async (request) => {
+    const query = request.query as { limit?: string; offset?: string; kind?: string; active?: string };
+    const limit = Math.min(Number(query.limit ?? 25) || 25, 100);
+    const offset = Math.max(Number(query.offset ?? 0) || 0, 0);
+
+    const filter: { activeOnly?: boolean; kind?: number } = {};
+    // Defaults to active-only: an inactive listing is an agent whose operator
+    // has said "do not hire me", and a directory that shows it by default
+    // invites exactly that.
+    if (query.active !== 'all') filter.activeOnly = true;
+    if (query.kind !== undefined && /^\d+$/.test(query.kind)) filter.kind = Number(query.kind);
+
+    const listings = await store.listAgentListings(limit, offset, filter);
+
+    // Statistics per listing, so the directory can show a track record rather
+    // than only a claim. An agent with none gets nulls, not zeroes: "no runs
+    // yet" and "zero successes" are different statements.
+    const agents = await Promise.all(
+      listings.map(async (listing) => {
+        const stats = await store.getAgent(listing.agentId);
+        return {
+          ...listing,
+          metadata: decodeMetadata(listing.metadataURI),
+          stepCount: stats?.stepCount ?? 0,
+          okCount: stats?.okCount ?? 0,
+          runCount: stats?.runCount ?? 0,
+          successRate:
+            stats === null || stats.stepCount === 0 ? null : stats.okCount / stats.stepCount,
+        };
+      }),
+    );
+
+    return serialise({
+      agents,
+      limit,
+      offset,
+      registry: network.contracts.agentAdapterRegistryV2,
+    });
+  });
+
   app.get('/api/agents/:agentId', async (request, reply) => {
     const { agentId } = request.params as { agentId: string };
     if (!/^\d+$/.test(agentId)) {
       return reply.code(400).send({ error: 'agentId must be a decimal ERC-721 token id' });
     }
     const id = BigInt(agentId);
+    const listing = await store.getAgentListing(id);
     const agent = await store.getAgent(id);
-    if (agent === null) return reply.code(404).send({ error: 'no such agent' });
+    // Either is enough to have something to show. A published agent that has
+    // never run has a listing and no statistics; an agent that ran before the
+    // marketplace existed has statistics and no listing.
+    if (agent === null && listing === null) {
+      return reply.code(404).send({ error: 'no such agent' });
+    }
     const runs = await store.listRunsForAgent(id, 50);
 
     return serialise({
+      listing:
+        listing === null ? null : { ...listing, metadata: decodeMetadata(listing.metadataURI) },
       agent: {
+        agentId: id,
+        stepCount: 0,
+        okCount: 0,
+        attestedCount: 0,
+        runCount: 0,
         ...agent,
         // Rates are reported alongside their denominators: "100% attested"
         // over one step is not the same claim as over a hundred.
-        successRate: agent.stepCount === 0 ? null : agent.okCount / agent.stepCount,
-        attestationRate: agent.stepCount === 0 ? null : agent.attestedCount / agent.stepCount,
+        successRate:
+          agent === null || agent.stepCount === 0 ? null : agent.okCount / agent.stepCount,
+        attestationRate:
+          agent === null || agent.stepCount === 0 ? null : agent.attestedCount / agent.stepCount,
         identityRegistry: network.contracts.identityRegistry,
       },
       runs: runs.map(summarise),
@@ -163,6 +226,29 @@ export function createServer(options: ServerOptions): FastifyInstance {
   });
 
   return app;
+}
+
+/**
+ * Reads the name and description out of a listing's metadataURI.
+ *
+ * `publish` writes a base64 data URI, so the common case needs no network
+ * call. Anything else — ipfs://, https:// — is left as a URI for the client to
+ * resolve or ignore; fetching arbitrary URLs here would let a listing make the
+ * explorer's server issue requests on its behalf.
+ */
+function decodeMetadata(uri: string): Record<string, unknown> | null {
+  const match = /^data:application\/json;base64,(.*)$/.exec(uri);
+  if (match === null) return null;
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(match[1]!, 'base64').toString('utf8'));
+    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    // A listing is published by a stranger. Malformed metadata is their
+    // problem, not a reason for the directory to fail.
+    return null;
+  }
 }
 
 function summarise(run: {

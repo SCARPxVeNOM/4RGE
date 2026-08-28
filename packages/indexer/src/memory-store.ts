@@ -9,7 +9,16 @@
  */
 
 import { statusSucceeded, ZERO_BYTES32, type Hex } from '@0gflow/core';
-import type { AgentRow, FlowRow, RunRow, SealInput, StepRow, Store } from './store.js';
+import type {
+  AgentListingFilter,
+  AgentListingRow,
+  AgentRow,
+  FlowRow,
+  RunRow,
+  SealInput,
+  StepRow,
+  Store,
+} from './store.js';
 
 const key = (runId: string, stepIndex: number) => `${runId.toLowerCase()}:${stepIndex}`;
 
@@ -19,6 +28,7 @@ export class MemoryStore implements Store {
   private readonly steps = new Map<string, StepRow>();
   private readonly seals = new Map<string, SealInput>();
   private readonly flows = new Map<string, FlowRow>();
+  private readonly listings = new Map<string, AgentListingRow>();
 
   async getCursor() {
     return this.cursor;
@@ -46,6 +56,9 @@ export class MemoryStore implements Store {
     for (const [k, flow] of this.flows) {
       if (flow.blockNumber >= blockNumber) this.flows.delete(k);
     }
+    for (const [k, listing] of this.listings) {
+      if (listing.blockNumber >= blockNumber) this.listings.delete(k);
+    }
     for (const [k] of this.blocks) {
       if (BigInt(k) >= blockNumber) this.blocks.delete(k);
     }
@@ -62,6 +75,42 @@ export class MemoryStore implements Store {
 
   async upsertFlow(flow: FlowRow) {
     this.flows.set(flow.flowId.toLowerCase(), flow);
+  }
+
+  async upsertAgentListing(listing: AgentListingRow) {
+    const existing = this.listings.get(listing.agentId.toString());
+    // Versions only move forward in the registry, so a lower one here means a
+    // log arrived out of order. Taking it would replace the current listing
+    // with a stale endpoint, and the directory would send callers to an agent
+    // that has moved.
+    if (existing !== undefined && existing.version > listing.version) return;
+    this.listings.set(listing.agentId.toString(), listing);
+  }
+
+  async deactivateAgentListing(agentId: bigint, blockNumber: bigint) {
+    const existing = this.listings.get(agentId.toString());
+    // A deactivation for an agent never seen is not an error — the indexer may
+    // be scanning a window that starts after the registration.
+    if (existing === undefined) return;
+    this.listings.set(agentId.toString(), { ...existing, active: false, blockNumber });
+  }
+
+  async getAgentListing(agentId: bigint) {
+    return this.listings.get(agentId.toString()) ?? null;
+  }
+
+  async listAgentListings(limit: number, offset: number, filter?: AgentListingFilter) {
+    return [...this.listings.values()]
+      .filter((a) => (filter?.activeOnly === true ? a.active : true))
+      .filter((a) => (filter?.kind === undefined ? true : a.kind === filter.kind))
+      // Newest listing first, so a just-published agent is visible without
+      // paging. Ties broken by agentId so the order is total and stable.
+      .sort((a, b) =>
+        a.blockNumber === b.blockNumber
+          ? Number(b.agentId - a.agentId)
+          : Number(b.blockNumber - a.blockNumber),
+      )
+      .slice(offset, offset + limit);
   }
 
   private stepsFor(runId: string): StepRow[] {

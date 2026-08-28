@@ -15,7 +15,16 @@
  * receipts nobody can find on chain, and §1.3 exists to stop exactly that.
  */
 
-import { decodeRunSealed, decodeStepAnchored, RUN_SEALED_TOPIC, STEP_ANCHORED_TOPIC } from '@0gflow/verify/decode';
+import {
+  ADAPTER_DEACTIVATED_TOPIC,
+  ADAPTER_REGISTERED_TOPIC,
+  decodeAdapterDeactivated,
+  decodeAdapterRegistered,
+  decodeRunSealed,
+  decodeStepAnchored,
+  RUN_SEALED_TOPIC,
+  STEP_ANCHORED_TOPIC,
+} from '@0gflow/verify/decode';
 import type { RawLog } from '@0gflow/verify/decode';
 import type { Hex } from '@0gflow/core';
 import type { Store } from './store.js';
@@ -34,6 +43,15 @@ export interface IngestArgs {
   readonly store: Store;
   readonly chain: ChainReader;
   readonly contract: string;
+  /**
+   * `AgentAdapterRegistryV2`, so the directory is indexed too.
+   *
+   * Optional: an indexer pointed at a network without the marketplace
+   * contracts still works, and simply has no listings. Without it a published
+   * agent stays invisible until it has been hired at least once, which is the
+   * wrong way round — discovery has to come first.
+   */
+  readonly adapterRegistry?: string;
   readonly from: bigint;
   readonly to: bigint;
   /** Blocks below head-finalityDepth are treated as settled. */
@@ -45,6 +63,7 @@ export interface IngestResult {
   readonly scannedTo: bigint;
   readonly steps: number;
   readonly seals: number;
+  readonly listings: number;
   /** Set when a reorg was detected and rows were dropped from this height. */
   readonly reorgedFrom: bigint | null;
 }
@@ -80,7 +99,7 @@ async function findReorg(
 }
 
 export async function ingestRange(args: IngestArgs): Promise<IngestResult> {
-  const { store, chain, contract, to, finalityDepth } = args;
+  const { store, chain, contract, adapterRegistry, to, finalityDepth } = args;
   let { from } = args;
 
   const reorgedFrom = await findReorg(store, chain, from, to, finalityDepth);
@@ -90,9 +109,16 @@ export async function ingestRange(args: IngestArgs): Promise<IngestResult> {
     if (reorgedFrom < from) from = reorgedFrom;
   }
 
-  const logs = await chain.getLogs(from, to, contract);
+  // Both contracts over the same block range, so one reorg check and one
+  // cursor cover them. Fetched separately because eth_getLogs takes a single
+  // address here; merged and re-sorted below so ordering stays global.
+  const logs = [
+    ...(await chain.getLogs(from, to, contract)),
+    ...(adapterRegistry === undefined ? [] : await chain.getLogs(from, to, adapterRegistry)),
+  ];
   let steps = 0;
   let seals = 0;
+  let listings = 0;
 
   // Ascending order so a seal never lands before the receipts it counts.
   const ordered = [...logs].sort((a, b) => {
@@ -136,12 +162,36 @@ export async function ingestRange(args: IngestArgs): Promise<IngestResult> {
         blockHash: log.blockHash,
       });
       seals += 1;
+    } else if (topic === ADAPTER_REGISTERED_TOPIC) {
+      const listing = decodeAdapterRegistered(log);
+      await store.upsertAgentListing({
+        agentId: listing.agentId,
+        owner: listing.owner,
+        kind: listing.kind,
+        endpoint: listing.endpoint,
+        schemaRoot: listing.schemaRoot,
+        version: listing.version,
+        active: listing.active,
+        payTo: listing.payTo,
+        signer: listing.signer,
+        pricePerCall: listing.pricePerCall,
+        metadataURI: listing.metadataURI,
+        blockNumber: listing.blockNumber,
+        blockHash: log.blockHash,
+      });
+      listings += 1;
+    } else if (topic === ADAPTER_DEACTIVATED_TOPIC) {
+      // Registering an inactive adapter emits both events, and they arrive in
+      // that order, so this correctly lands after the upsert above.
+      const gone = decodeAdapterDeactivated(log);
+      await store.deactivateAgentListing(gone.agentId, gone.blockNumber);
+      listings += 1;
     }
   }
 
   await store.setCursor(to);
 
-  return { scannedFrom: from, scannedTo: to, steps, seals, reorgedFrom };
+  return { scannedFrom: from, scannedTo: to, steps, seals, listings, reorgedFrom };
 }
 
 export interface FollowArgs extends Omit<IngestArgs, 'from' | 'to'> {

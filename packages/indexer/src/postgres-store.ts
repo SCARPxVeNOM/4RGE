@@ -16,7 +16,16 @@
 
 import pg from 'pg';
 import { StepStatus, ZERO_BYTES32, type Hex } from '@0gflow/core';
-import type { AgentRow, FlowRow, RunRow, SealInput, StepRow, Store } from './store.js';
+import type {
+  AgentListingFilter,
+  AgentListingRow,
+  AgentRow,
+  FlowRow,
+  RunRow,
+  SealInput,
+  StepRow,
+  Store,
+} from './store.js';
 
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS indexer_state (
@@ -75,6 +84,33 @@ CREATE TABLE IF NOT EXISTS flows (
   block_hash   TEXT    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS flows_block ON flows (block_number);
+
+-- Marketplace listings, as published in AgentAdapterRegistryV2.
+--
+-- Deliberately separate from the derived per-agent statistics: a freshly
+-- published agent has a listing and no statistics at all, and merging the two
+-- would make it invisible until someone had already hired it.
+--
+-- agent_id is NUMERIC, not BIGINT. Token ids are uint256 and a BIGINT would
+-- silently overflow on any id above 2^63, which is a perfectly ordinary token
+-- id for a registry that hashes something into it.
+CREATE TABLE IF NOT EXISTS agent_listings (
+  agent_id       NUMERIC PRIMARY KEY,
+  owner          TEXT     NOT NULL,
+  kind           SMALLINT NOT NULL,
+  endpoint       TEXT     NOT NULL,
+  schema_root    TEXT     NOT NULL,
+  version        BIGINT   NOT NULL,
+  active         BOOLEAN  NOT NULL,
+  pay_to         TEXT     NOT NULL,
+  signer         TEXT     NOT NULL,
+  price_per_call NUMERIC  NOT NULL,
+  metadata_uri   TEXT     NOT NULL,
+  block_number   NUMERIC  NOT NULL,
+  block_hash     TEXT     NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agent_listings_block  ON agent_listings (block_number);
+CREATE INDEX IF NOT EXISTS agent_listings_active ON agent_listings (active);
 `;
 
 /** Aggregates a run from its steps and seal, mirroring MemoryStore exactly. */
@@ -181,6 +217,7 @@ export class PostgresStore implements Store {
       await client.query('DELETE FROM steps  WHERE block_number >= $1', [b]);
       await client.query('DELETE FROM seals  WHERE block_number >= $1', [b]);
       await client.query('DELETE FROM flows  WHERE block_number >= $1', [b]);
+      await client.query('DELETE FROM agent_listings WHERE block_number >= $1', [b]);
       await client.query('DELETE FROM blocks WHERE block_number >= $1', [b]);
       await client.query(
         'UPDATE indexer_state SET cursor_block = GREATEST($1::NUMERIC - 1, 0) WHERE id = 1 AND cursor_block >= $1',
@@ -246,6 +283,88 @@ export class PostgresStore implements Store {
         f.publishedAt.toString(), f.blockNumber.toString(), f.blockHash,
       ],
     );
+  }
+
+  async upsertAgentListing(a: AgentListingRow): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO agent_listings
+         (agent_id, owner, kind, endpoint, schema_root, version, active,
+          pay_to, signer, price_per_call, metadata_uri, block_number, block_hash)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+       ON CONFLICT (agent_id) DO UPDATE SET
+         owner = EXCLUDED.owner, kind = EXCLUDED.kind, endpoint = EXCLUDED.endpoint,
+         schema_root = EXCLUDED.schema_root, version = EXCLUDED.version,
+         active = EXCLUDED.active, pay_to = EXCLUDED.pay_to, signer = EXCLUDED.signer,
+         price_per_call = EXCLUDED.price_per_call, metadata_uri = EXCLUDED.metadata_uri,
+         block_number = EXCLUDED.block_number, block_hash = EXCLUDED.block_hash
+       -- Versions only move forward in the registry, so a lower one means a
+       -- log arrived out of order. Taking it would point the directory at an
+       -- endpoint the agent has already left. Mirrors MemoryStore exactly.
+       WHERE agent_listings.version <= EXCLUDED.version`,
+      [
+        a.agentId.toString(), a.owner.toLowerCase(), a.kind, a.endpoint,
+        a.schemaRoot.toLowerCase(), a.version, a.active, a.payTo.toLowerCase(),
+        a.signer.toLowerCase(), a.pricePerCall.toString(), a.metadataURI,
+        a.blockNumber.toString(), a.blockHash,
+      ],
+    );
+  }
+
+  async deactivateAgentListing(agentId: bigint, blockNumber: bigint): Promise<void> {
+    // No-op for an agent never seen, exactly as in MemoryStore: the indexer
+    // may be scanning a window that starts after the registration.
+    await this.pool.query(
+      'UPDATE agent_listings SET active = FALSE, block_number = $2 WHERE agent_id = $1',
+      [agentId.toString(), blockNumber.toString()],
+    );
+  }
+
+  async getAgentListing(agentId: bigint): Promise<AgentListingRow | null> {
+    const { rows } = await this.pool.query('SELECT * FROM agent_listings WHERE agent_id = $1', [
+      agentId.toString(),
+    ]);
+    return rows[0] === undefined ? null : PostgresStore.toListing(rows[0] as Record<string, unknown>);
+  }
+
+  async listAgentListings(
+    limit: number,
+    offset: number,
+    filter?: AgentListingFilter,
+  ): Promise<AgentListingRow[]> {
+    const where: string[] = [];
+    const params: unknown[] = [limit, offset];
+    if (filter?.activeOnly === true) where.push('active = TRUE');
+    if (filter?.kind !== undefined) {
+      params.push(filter.kind);
+      where.push(`kind = $${params.length}`);
+    }
+
+    const { rows } = await this.pool.query(
+      `SELECT * FROM agent_listings
+       ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''}
+       ORDER BY block_number DESC, agent_id DESC
+       LIMIT $1 OFFSET $2`,
+      params,
+    );
+    return rows.map((r) => PostgresStore.toListing(r as Record<string, unknown>));
+  }
+
+  private static toListing(row: Record<string, unknown>): AgentListingRow {
+    return {
+      agentId: BigInt(String(row['agent_id'])),
+      owner: row['owner'] as Hex,
+      kind: Number(row['kind']),
+      endpoint: String(row['endpoint']),
+      schemaRoot: row['schema_root'] as Hex,
+      version: Number(row['version']),
+      active: Boolean(row['active']),
+      payTo: row['pay_to'] as Hex,
+      signer: row['signer'] as Hex,
+      pricePerCall: BigInt(String(row['price_per_call'])),
+      metadataURI: String(row['metadata_uri']),
+      blockNumber: BigInt(String(row['block_number'])),
+      blockHash: String(row['block_hash']),
+    };
   }
 
   private static toRun(row: Record<string, unknown>): RunRow {

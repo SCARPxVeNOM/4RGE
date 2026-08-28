@@ -66,3 +66,19 @@ td { padding: 9px 10px 9px 0; border-bottom: 1px solid var(--line); }
 
 ul { padding-left: 18px; }
 li { margin: 6px 0; }
+
+/* Directory navigation. Two links, so nothing more elaborate is warranted. */
+header nav {
+  display: flex;
+  gap: 1rem;
+  margin-left: 1.5rem;
+}
+header nav a {
+  color: inherit;
+  opacity: 0.7;
+  text-decoration: none;
+}
+header nav a:hover {
+  opacity: 1;
+  text-decoration: underline;
+}

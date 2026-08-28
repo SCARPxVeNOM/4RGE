@@ -191,6 +191,94 @@ function RunList() {
   );
 }
 
+interface AgentListing {
+  agentId: string;
+  owner: string;
+  kind: number;
+  endpoint: string;
+  version: number;
+  active: boolean;
+  payTo: string;
+  signer: string;
+  pricePerCall: string;
+  metadata: { name?: string; description?: string } | null;
+  stepCount: number;
+  okCount: number;
+  runCount: number;
+  successRate: number | null;
+}
+
+const KIND_NAMES = ['http', 'contract', '0g-compute', 'flow'];
+
+/** Wei as OG, for display only. Never used in a comparison. */
+function og(wei: string): string {
+  const value = Number(wei) / 1e18;
+  if (value === 0) return 'free';
+  return `${value.toFixed(6).replace(/0+$/, '').replace(/\.$/, '')} OG`;
+}
+
+function AgentList() {
+  const { data, error, loading } = useAsync(
+    () => api<{ agents: AgentListing[]; registry: string | null }>('/api/agents?limit=50'),
+    [],
+  );
+  if (loading) return <p className="muted">loading agents…</p>;
+  if (error !== null) return <p className="bad">could not load agents: {error}</p>;
+
+  const { agents, registry } = data!;
+
+  return (
+    <>
+      <h2>Agents</h2>
+      <p className="muted">
+        Published to{' '}
+        {registry === null ? 'the adapter registry' : <code>{short(registry, 12)}</code>} by their
+        owners. Anyone can list one with <code>npx @0gflow/publish</code>.
+      </p>
+
+      {agents.length === 0 ? (
+        <p className="muted">No agents published yet.</p>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>Agent</th>
+              <th>Endpoint</th>
+              <th>Kind</th>
+              <th>Price</th>
+              <th>Record</th>
+            </tr>
+          </thead>
+          <tbody>
+            {agents.map((agent) => (
+              <tr key={agent.agentId}>
+                <td>
+                  <a href={`#/agent/${agent.agentId}`}>
+                    {agent.metadata?.name ?? `#${agent.agentId}`}
+                  </a>
+                  <div className="muted">#{agent.agentId} · v{agent.version}</div>
+                </td>
+                <td>
+                  <code>{short(agent.endpoint, 34)}</code>
+                </td>
+                <td className="muted">{KIND_NAMES[agent.kind] ?? agent.kind}</td>
+                <td className="muted">{og(agent.pricePerCall)}</td>
+                <td className="muted">
+                  {/* A rate with no denominator is not a track record. An agent
+                      that has never run says so, rather than showing 0%. */}
+                  {agent.stepCount === 0
+                    ? 'no runs yet'
+                    : `${agent.okCount}/${agent.stepCount} steps ok`}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
+  );
+}
+
 interface RunDetail {
   run: RunSummary & { computedChainRoot: string | null; chainRootMatches: boolean | null };
   steps: ApiStep[];
@@ -383,6 +471,7 @@ export default function App() {
   const health = useAsync(() => api<Health>('/api/health'), []);
 
   let page = <RunList />;
+  if (route[0] === 'agents') page = <AgentList />;
   if (route[0] === 'run' && route[1] !== undefined) page = <RunPage runId={route[1]} />;
   else if (route[0] === 'agent' && route[1] !== undefined) page = <AgentPage agentId={route[1]} />;
   else if (route[0] === 'flow' && route[1] !== undefined) page = <FlowPage flowId={route[1]} />;
@@ -393,6 +482,10 @@ export default function App() {
         <a href="#/" className="brand">
           0G Flow <span className="muted">Explorer</span>
         </a>
+        <nav>
+          <a href="#/">Runs</a>
+          <a href="#/agents">Agents</a>
+        </nav>
         <span className="muted">
           {health.data === null
             ? ''
