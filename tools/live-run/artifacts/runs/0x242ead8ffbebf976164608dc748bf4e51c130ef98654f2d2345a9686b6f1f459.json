@@ -1,0 +1,17 @@
+{
+  "version": "0gflow/1",
+  "name": "subcontracted-audit",
+  "inputs": {
+    "repo": "https://github.com/0glabs/0g-storage-node"
+  },
+  "steps": [
+    {
+      "id": "audit",
+      "agent": "12",
+      "input": {
+        "repo": "{{ inputs.repo }}"
+      },
+      "requireSignedOutput": true
+    }
+  ]
+}

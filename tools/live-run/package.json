@@ -7,7 +7,8 @@
   "scripts": {
     "live": "tsx src/run.ts",
     "marketplace": "tsx src/marketplace.ts",
-    "paid": "tsx src/paid.ts"
+    "paid": "tsx src/paid.ts",
+    "hired": "tsx src/hired.ts"
   },
   "dependencies": {
     "@0gflow/config": "workspace:*",

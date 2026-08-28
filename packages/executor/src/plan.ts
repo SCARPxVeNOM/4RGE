@@ -32,7 +32,21 @@ export interface StepSpec {
   readonly agent: string;
   readonly input: JsonValue;
   readonly needs?: readonly string[];
+  /**
+   * `'flow'` makes this step a sub-workflow: the executor opens a child run,
+   * executes `flow` inside it, and the step's output is that child's on-chain
+   * result. Any other value (or none) is an ordinary agent invocation.
+   */
   readonly kind?: string;
+  /**
+   * The sub-workflow to run, when `kind` is `'flow'`.
+   *
+   * This is how an agent hires other agents with the hiring recorded rather
+   * than hidden. The alternative — an agent quietly calling three others
+   * inside its own process — produces one receipt for work four parties did,
+   * and nobody downstream can tell which of them to credit or blame.
+   */
+  readonly flow?: FlowSpec;
   readonly model?: string;
   readonly requireAttestation?: boolean;
   /**
@@ -120,7 +134,45 @@ function referencedInputs(value: JsonValue): string[] {
   return [...found];
 }
 
+/**
+ * How deep sub-flow nesting may go at planning time.
+ *
+ * Matches the executor's default. The planner's job is to refuse a spec that
+ * could never run, and a spec nested deeper than the executor will follow is
+ * exactly that.
+ */
+const MAX_PLAN_DEPTH = 4;
+
 export function planFlow(spec: FlowSpec): Plan {
+  return planFlowInner(spec, new Set(), 0);
+}
+
+/**
+ * `seen` holds the sub-flow objects currently being validated, by identity.
+ *
+ * A spec whose step points back at an enclosing spec is expressible in
+ * memory — nothing stops a caller building one — and validating it naively
+ * recurses forever. Identity is the right test here and not flowId: computing
+ * a flowId canonicalizes the spec, which on a circular object never returns,
+ * so the cycle has to be caught *before* hashing rather than by comparing
+ * hashes.
+ *
+ * Structurally identical but distinct objects slip past this, deliberately.
+ * They are caught at run time by the executor's lineage check, which compares
+ * flowIds across runs — by then each has been hashed safely.
+ */
+function planFlowInner(spec: FlowSpec, seen: Set<FlowSpec>, depth: number): Plan {
+  if (seen.has(spec)) {
+    throw new PlanError(
+      `flow "${spec.name}" contains itself as a sub-flow, so planning it would not terminate`,
+    );
+  }
+  if (depth > MAX_PLAN_DEPTH) {
+    throw new PlanError(
+      `sub-flow nesting exceeds the maximum depth of ${MAX_PLAN_DEPTH} at flow "${spec.name}"`,
+    );
+  }
+
   assertUniqueIds(spec);
 
   const indexById = new Map(spec.steps.map((s, i) => [s.id, i]));
@@ -160,6 +212,34 @@ export function planFlow(spec: FlowSpec): Plan {
           `step "${step.id}" reads steps.${upstream}.output but does not declare "${upstream}" in needs`,
         );
       }
+    }
+
+    // A sub-flow is validated here, recursively, for the same §5.1 reason
+    // everything else is: a malformed child plan must cost nothing, and
+    // discovering it mid-run would mean a parent already anchored steps for a
+    // flow that was never executable.
+    if (step.kind === 'flow') {
+      if (step.flow === undefined) {
+        throw new PlanError(`step "${step.id}" has kind "flow" but declares no flow to run`);
+      }
+      seen.add(spec);
+      try {
+        planFlowInner(step.flow, seen, depth + 1);
+      } catch (error) {
+        throw new PlanError(
+          `step "${step.id}": the sub-flow is not valid: ${(error as Error).message}`,
+        );
+      } finally {
+        // Removed on the way out so a flow legitimately hired by two sibling
+        // steps is not mistaken for a cycle.
+        seen.delete(spec);
+      }
+    } else if (step.flow !== undefined) {
+      // Silently ignoring it would mean a spec whose author expected a
+      // sub-flow to run getting a plain agent call instead.
+      throw new PlanError(
+        `step "${step.id}" declares a flow but its kind is "${step.kind ?? 'agent'}"; set kind: "flow" to run it`,
+      );
     }
 
     const dependsOn = [...new Set([...needs, ...reads])];

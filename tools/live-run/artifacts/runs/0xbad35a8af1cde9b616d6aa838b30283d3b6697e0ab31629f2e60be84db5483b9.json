@@ -1,0 +1,36 @@
+{
+  "version": "0gflow/1",
+  "name": "hiring-flow",
+  "inputs": {
+    "repoUrl": "https://github.com/0glabs/0g-storage-node"
+  },
+  "steps": [
+    {
+      "id": "delegate",
+      "agent": "12",
+      "kind": "flow",
+      "flow": {
+        "version": "0gflow/1",
+        "name": "subcontracted-audit",
+        "inputs": {
+          "repo": {
+            "type": "string"
+          }
+        },
+        "steps": [
+          {
+            "id": "audit",
+            "agent": "12",
+            "input": {
+              "repo": "{{ inputs.repo }}"
+            },
+            "requireSignedOutput": true
+          }
+        ]
+      },
+      "input": {
+        "repo": "{{ inputs.repoUrl }}"
+      }
+    }
+  ]
+}

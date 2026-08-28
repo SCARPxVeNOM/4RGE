@@ -29,6 +29,7 @@ import {
   foldChainRoot,
   hashJson,
   resolveTemplates,
+  keccak256,
   statusSucceeded,
   StepStatus,
   verifyAgentSignature,
@@ -178,6 +179,23 @@ export interface ExecuteOptions {
   readonly failFast?: boolean;
   readonly defaultTimeoutMs?: number;
   readonly now?: () => number;
+  /**
+   * The chain of runs that led here, outermost first. Set by the executor
+   * when it recurses into a sub-flow; callers leave it alone.
+   *
+   * It exists to bound recursion. The planner detects cycles *within* a flow
+   * and knows nothing across runs, so without this a flow whose sub-flow
+   * names the parent recurses until it exhausts the funder's budget or the
+   * process. The caps are not optional.
+   */
+  readonly lineage?: readonly RunAncestor[];
+  /** How deep sub-flows may nest. Default 4. */
+  readonly maxDepth?: number;
+}
+
+export interface RunAncestor {
+  readonly runId: Hex;
+  readonly flowId: Hex;
 }
 
 interface StepOutcomeInternal {
@@ -204,11 +222,27 @@ export async function executeRun(options: ExecuteOptions): Promise<RunResult> {
     failFast = true,
     defaultTimeoutMs = 30_000,
     now = Date.now,
+    lineage = [],
+    maxDepth = 4,
   } = options;
 
   // §5.1: validation happens before anything is published, invoked or
   // anchored. A rejected plan costs nothing; a bad receipt is permanent.
   const plan = planFlow(spec);
+
+  if (lineage.length >= maxDepth) {
+    throw new PlanError(
+      `sub-flow nesting exceeded the maximum depth of ${maxDepth}: ${[...lineage.map((a) => a.flowId), plan.flowId].join(' -> ')}`,
+    );
+  }
+  const repeated = lineage.find((a) => a.flowId.toLowerCase() === plan.flowId.toLowerCase());
+  if (repeated !== undefined) {
+    // Direct or indirect self-hire. The planner cannot see this: it validates
+    // one flow at a time and this cycle spans runs.
+    throw new PlanError(
+      `flow ${plan.flowId} already appears in this run's lineage (run ${repeated.runId}), so hiring it again would not terminate`,
+    );
+  }
 
   if (endpointFor === undefined && adapters === undefined) {
     // Refused up front, before anything is published or anchored (§5.1). A
@@ -247,6 +281,15 @@ export async function executeRun(options: ExecuteOptions): Promise<RunResult> {
           now,
           chainId: chain.chainId,
           receiptsAddress: chain.receiptsAddress,
+          runSubFlow: (spec_, inputs_, childRunId) =>
+            executeRun({
+              ...options,
+              spec: spec_,
+              inputs: inputs_,
+              runId: childRunId,
+              lineage: [...lineage, { runId, flowId: plan.flowId }],
+              maxDepth,
+            }),
           ...(signers === undefined ? {} : { signers }),
           ...(agents === undefined ? {} : { agents }),
         }),
@@ -307,12 +350,13 @@ interface RunStepArgs {
   now: () => number;
   chainId: number;
   receiptsAddress: Hex;
+  runSubFlow: (spec: FlowSpec, inputs: JsonValue, childRunId: Hex) => Promise<RunResult>;
   signers?: SignerRegistry;
   agents?: AgentRegistry;
 }
 
 async function runStep(args: RunStepArgs): Promise<StepOutcomeInternal> {
-  const { step, halted, inputs, outputs, statusById, runId, flowId, traces, endpointFor, adapters, defaultTimeoutMs, now, signers, agents, chainId, receiptsAddress } = args;
+  const { step, halted, inputs, outputs, statusById, runId, flowId, traces, endpointFor, adapters, defaultTimeoutMs, now, signers, agents, chainId, receiptsAddress, runSubFlow } = args;
   const startedAtMs = now();
 
   // A step whose upstream did not succeed has no data to run on. Skipping is
@@ -331,6 +375,21 @@ async function runStep(args: RunStepArgs): Promise<StepOutcomeInternal> {
 
   if (skipReason !== undefined) {
     return buildSkipped(step, runId, flowId, traces, skipReason, startedAtMs, now);
+  }
+
+  // 1a. A sub-flow step hires other agents instead of calling one.
+  if (step.kind === 'flow') {
+    return runSubFlowStep({
+      step,
+      runId,
+      flowId,
+      traces,
+      inputs,
+      outputs,
+      runSubFlow,
+      startedAtMs,
+      now,
+    });
   }
 
   // 1a. Resolve where this agent lives — §7 step 1.
@@ -579,6 +638,135 @@ export interface OutputIdentity {
   readonly signature: Hex | null;
   readonly registeredSigner: Hex | null;
   readonly valid: boolean;
+}
+
+/**
+ * Runs a nested workflow as one step of its parent.
+ *
+ * The parent's step output is the child's *on-chain* result — its run id and
+ * the chain root it sealed — not the child's data. That is what makes the
+ * nesting verifiable: a verifier reading the parent fetches the child's
+ * `RunSealed` from chain and checks the root matches, so a parent cannot claim
+ * work its child did not do. Copying the child's outputs up instead would
+ * produce a parent receipt asserting results with nothing tying them to the
+ * run that produced them.
+ *
+ * The child run id is derived from the parent's, so it is reproducible and
+ * cannot collide with another step's child.
+ */
+async function runSubFlowStep(args: {
+  step: PlannedStep;
+  runId: Hex;
+  flowId: Hex;
+  traces: TraceStore;
+  inputs: JsonValue;
+  outputs: Map<string, JsonValue>;
+  runSubFlow: (spec: FlowSpec, inputs: JsonValue, childRunId: Hex) => Promise<RunResult>;
+  startedAtMs: number;
+  now: () => number;
+}): Promise<StepOutcomeInternal> {
+  const { step, runId, flowId, traces, inputs, outputs, runSubFlow, startedAtMs, now } = args;
+
+  let resolvedInput: JsonValue;
+  try {
+    resolvedInput = resolveTemplates(step.input, {
+      inputs,
+      steps: Object.fromEntries([...outputs].map(([id, output]) => [id, { output }])),
+    });
+  } catch (error) {
+    return buildFailed(step, runId, flowId, traces, null, (error as Error).message, [], startedAtMs, now);
+  }
+
+  const childRunId = keccak256(
+    new TextEncoder().encode(`0gflow-subflow:${runId}:${step.stepIndex}`),
+  ) as Hex;
+
+  let child: RunResult;
+  try {
+    child = await runSubFlow(step.flow!, resolvedInput, childRunId);
+  } catch (error) {
+    // A depth or cycle refusal lands here, as does any child failure that
+    // could not even be sealed. Either way the parent step failed, and says
+    // why in its own receipt.
+    return buildFailed(
+      step,
+      runId,
+      flowId,
+      traces,
+      resolvedInput,
+      `sub-flow did not complete: ${(error as Error).message}`,
+      [],
+      startedAtMs,
+      now,
+    );
+  }
+
+  const output: JsonValue = {
+    childRunId: child.runId,
+    childFlowId: child.flowId,
+    chainRoot: child.chainRoot,
+    stepCount: child.receipts.length,
+    outcome: child.outcome,
+  };
+
+  const endedAtMs = now();
+
+  // A child that did not succeed makes the parent step a failure. The child's
+  // own receipts already record what went wrong, in detail, on chain — so the
+  // parent points at them rather than restating them.
+  if (!child.succeeded) {
+    return buildFailed(
+      step,
+      runId,
+      flowId,
+      traces,
+      resolvedInput,
+      `sub-flow ${child.runId} sealed with outcome ${child.outcome}; see its receipts`,
+      [],
+      startedAtMs,
+      now,
+    );
+  }
+
+  const trace = buildTrace(step, runId, resolvedInput, output, null, null, [], null, startedAtMs, endedAtMs);
+  const { traceRoot } = await traces.put(trace as unknown as JsonValue);
+
+  // No attestation and no signature: nothing was invoked. The evidence for
+  // this step is the child run's seal, which is on chain and checkable.
+  const status = decideStepStatus({ requireAttestation: false, attestationPresent: false });
+
+  return {
+    step,
+    receipt: {
+      flowId,
+      runId,
+      stepIndex: step.stepIndex,
+      agentId: BigInt(step.agent),
+      inputHash: hashJson(resolvedInput),
+      outputHash: hashJson(output),
+      traceRoot,
+      attestationRef: ZERO_BYTES32,
+      startedAt: nowSeconds(startedAtMs),
+      endedAt: nowSeconds(endedAtMs),
+      status,
+    },
+    output,
+    result: {
+      stepId: step.id,
+      stepIndex: step.stepIndex,
+      status,
+      traceRoot,
+      inputHash: hashJson(resolvedInput),
+      outputHash: hashJson(output),
+      attestationRef: ZERO_BYTES32,
+      startedAt: startedAtMs,
+      endedAt: endedAtMs,
+      anchor: { txHash: ZERO_BYTES32, blockNumber: 0n, logIndex: 0 },
+      error: null,
+      attempts: [],
+      outputSignature: null,
+    },
+  };
 }
 
 /**
