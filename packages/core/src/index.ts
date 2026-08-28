@@ -118,3 +118,12 @@ export {
   type SchemaCheck,
   type SchemaProblem,
 } from './schema.js';
+export {
+  computeAgentRecord,
+  evaluateReputation,
+  successRate,
+  EMPTY_RECORD,
+  type AgentRecord,
+  type ReputationRequirement,
+  type ReputationVerdict,
+} from './reputation.js';

@@ -8,14 +8,16 @@
     "live": "tsx src/run.ts",
     "marketplace": "tsx src/marketplace.ts",
     "paid": "tsx src/paid.ts",
-    "hired": "tsx src/hired.ts"
+    "hired": "tsx src/hired.ts",
+    "slash": "tsx src/slash.ts"
   },
   "dependencies": {
     "@0gflow/config": "workspace:*",
     "@0gflow/core": "workspace:*",
     "viem": "^2.21.0",
     "@0gflow/executor": "workspace:*",
-    "@0gflow/storage": "workspace:*"
+    "@0gflow/storage": "workspace:*",
+    "@0gflow/publish": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.19.2"

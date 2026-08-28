@@ -32,6 +32,8 @@ import {
   keccak256,
   validateAgainstSchema,
   describeSchemaProblems,
+  evaluateReputation,
+  type AgentRecord,
   statusSucceeded,
   StepStatus,
   verifyAgentSignature,
@@ -47,7 +49,7 @@ import {
   type ResponseSignature,
 } from '@0gflow/core';
 import { AdapterError, invokeHttpAdapter, type AttemptRecord } from './adapter.js';
-import { planFlow, PlanError, type FlowSpec, type PlannedStep } from './plan.js';
+import { planFlow, PlanError, type FlowPolicy, type FlowSpec, type PlannedStep } from './plan.js';
 import type { AdapterResolver } from './adapters.js';
 
 export interface AnchorReceipt {
@@ -132,6 +134,29 @@ export interface EscrowClient {
  * is whatever it is serving right now. Validating against the committed one is
  * what makes §7 step 3 a check rather than a courtesy.
  */
+/**
+ * Reads what an agent has at stake, from `AgentReputationV1`.
+ *
+ * Separate from `AgentRegistry` because they answer different questions and
+ * live in different contracts: one is the key an agent publishes, the other is
+ * the bond it has posted.
+ */
+export interface StakeSource {
+  /** Null when it could not be read — which never counts as meeting a bar. */
+  stakeOf(agentId: bigint): Promise<bigint | null>;
+}
+
+/**
+ * Reads an agent's derived record.
+ *
+ * Unlike the health probe, this is a cache of something checkable: the record
+ * is folded from receipts that are on chain, so a verifier can recompute it
+ * and catch a source that lies.
+ */
+export interface ReputationSource {
+  recordOf(agentId: bigint): Promise<AgentRecord | null>;
+}
+
 export interface SchemaResolver {
   fetch(schemaRoot: Hex): Promise<JsonValue | null>;
 }
@@ -225,6 +250,13 @@ export interface ExecuteOptions {
    * run did before this existed.
    */
   readonly schemas?: SchemaResolver;
+  /**
+   * Where to read an agent's track record and bond, for `policy.minReputation`
+   * — spec §7 step 2. Omitted means a flow that sets a bar cannot check it,
+   * and every step it governs is skipped rather than quietly hired.
+   */
+  readonly reputation?: ReputationSource;
+  readonly stakes?: StakeSource;
   /** Halt remaining waves after a step fails. Defaults to true (§5 policy). */
   readonly failFast?: boolean;
   readonly defaultTimeoutMs?: number;
@@ -271,6 +303,8 @@ export async function executeRun(options: ExecuteOptions): Promise<RunResult> {
     agents,
     escrow,
     schemas,
+    reputation,
+    stakes,
     failFast = true,
     defaultTimeoutMs = 30_000,
     now = Date.now,
@@ -345,6 +379,9 @@ export async function executeRun(options: ExecuteOptions): Promise<RunResult> {
           ...(signers === undefined ? {} : { signers }),
           ...(agents === undefined ? {} : { agents }),
           ...(schemas === undefined ? {} : { schemas }),
+          ...(reputation === undefined ? {} : { reputation }),
+          ...(stakes === undefined ? {} : { stakes }),
+          ...(spec.policy === undefined ? {} : { policy: spec.policy }),
         }),
       ),
     );
@@ -413,10 +450,13 @@ interface RunStepArgs {
   signers?: SignerRegistry;
   agents?: AgentRegistry;
   schemas?: SchemaResolver;
+  reputation?: ReputationSource;
+  stakes?: StakeSource;
+  policy?: FlowPolicy;
 }
 
 async function runStep(args: RunStepArgs): Promise<StepOutcomeInternal> {
-  const { step, halted, inputs, outputs, statusById, runId, flowId, traces, endpointFor, adapters, defaultTimeoutMs, now, signers, agents, schemas, chainId, receiptsAddress, runSubFlow } = args;
+  const { step, halted, inputs, outputs, statusById, runId, flowId, traces, endpointFor, adapters, defaultTimeoutMs, now, signers, agents, schemas, reputation, stakes, policy, chainId, receiptsAddress, runSubFlow } = args;
   const startedAtMs = now();
 
   // A step whose upstream did not succeed has no data to run on. Skipping is
@@ -435,6 +475,14 @@ async function runStep(args: RunStepArgs): Promise<StepOutcomeInternal> {
 
   if (skipReason !== undefined) {
     return buildSkipped(step, runId, flowId, traces, skipReason, startedAtMs, now);
+  }
+
+  // §7 step 2: apply policy. Below the bar, the step is skipped with the
+  // reason — the spec's word, and the right one. The agent did not fail; it
+  // was never asked, because this flow declined to hire it.
+  const belowBar = await checkReputation(step, { reputation, stakes, policy });
+  if (belowBar !== null) {
+    return buildSkipped(step, runId, flowId, traces, belowBar, startedAtMs, now);
   }
 
   // 1a. A sub-flow step hires other agents instead of calling one.
@@ -716,6 +764,59 @@ export interface OutputIdentity {
   readonly signature: Hex | null;
   readonly registeredSigner: Hex | null;
   readonly valid: boolean;
+}
+
+/**
+ * Whether this flow will hire this agent at all — §7 step 2.
+ *
+ * Returns null when the agent clears the bar or no bar was set, and a reason
+ * when it does not.
+ *
+ * A step's own `requireReputation` replaces the flow's policy rather than
+ * adding to it: a step that states its own terms means them, and silently
+ * ANDing the flow's bar on top would make a step look more permissive than it
+ * is.
+ *
+ * A bar that cannot be checked is not met. That is the same rule as everywhere
+ * else here — an unreadable record and a good record are different answers,
+ * and a policy that treats them alike protects nobody. The cost is that a
+ * misconfigured run skips every step instead of hiring blindly, which is the
+ * direction to fail in.
+ */
+async function checkReputation(
+  step: PlannedStep,
+  ctx: {
+    reputation: ReputationSource | undefined;
+    stakes: StakeSource | undefined;
+    policy: FlowPolicy | undefined;
+  },
+): Promise<string | null> {
+  const requirement = step.requireReputation ?? ctx.policy;
+  if (requirement === undefined) return null;
+
+  const minReputation = requirement.minReputation ?? 0;
+  const minStake = requirement.minStake === undefined ? 0n : BigInt(requirement.minStake);
+  if (minReputation <= 0 && minStake <= 0n) return null;
+
+  const agentId = BigInt(step.agent);
+
+  let record: AgentRecord | null = null;
+  if (minReputation > 0 && ctx.reputation !== undefined) {
+    record = await ctx.reputation.recordOf(agentId).catch(() => null);
+  }
+
+  let stake: bigint | null = null;
+  if (minStake > 0n && ctx.stakes !== undefined) {
+    stake = await ctx.stakes.stakeOf(agentId).catch(() => null);
+  }
+
+  const verdict = evaluateReputation(record, stake, {
+    ...(minReputation > 0 ? { minReputation } : {}),
+    ...(requirement.minSteps === undefined ? {} : { minSteps: requirement.minSteps }),
+    ...(minStake > 0n ? { minStake } : {}),
+  });
+
+  return verdict.meets ? null : `policy: ${verdict.reason ?? 'the agent does not meet this flow’s bar'}`;
 }
 
 /**

@@ -17,6 +17,7 @@ live and every run anchored there still verifies.
 | `ExecutionReceiptsV2` | `0x5368974B886D04aC90ffB6f385e494FdF13E055b` |
 | `AgentAdapterRegistryV2` | `0xB9b587D30740DD1197f6bC0E2FF56ee82E6C8a66` |
 | `FlowEscrowV2` | `0xD3dF323f6d651d4C827a0143b89b98dD52101c7E` |
+| `AgentReputationV1` | `0x6f21357c9a1FEEfe033d11f8d2BC59FE970eFbB9` |
 | `FlowRegistry` (reused from v1) | `0xe09aC2F04Fc663dB9ddb2824d44d5B1AFe7fD53f` |
 
 `FlowRegistry` is shared rather than redeployed. It maps `runId` to flow and
@@ -151,11 +152,56 @@ it lands in the trace and the trace hashes into the receipt.
 Worth disclosing anyway: it is the difference between a subcontractor and a
 ghostwriter.
 
+### Refusing to hire
+
+An agent's record is folded from its receipts by one function everything calls,
+so the directory and the executor cannot disagree and anyone can recompute it.
+
+A flow sets its bar with `policy.minReputation` and `policy.minStake`, and
+below it the step is **skipped with the reason**, not failed. The agent did not
+fail; it was never asked.
+
+Two judgements are worth stating because reputation systems usually get them
+wrong. A rate with no denominator is not a track record, so a perfect one-step
+record does not clear a threshold -- the sample floor defaults to ten, and
+without it every brand-new agent clears every bar, which is exactly the agent a
+threshold was meant to screen out. And a bar that cannot be checked is not met:
+an unreadable record skips the step rather than hiring blindly.
+
+Live, against a real bond:
+
+> `0x83751b38` a bar it meets -- status 0
+> `0x61e666b8` a bar it does not -- status 2, *"agent has bonded
+> 3000000000000000 wei, below the 999000000000000000 wei this flow requires"*
+
+### The bond, and what it can actually punish
+
+`AgentReputationV1` holds a bond against an agent identity, with a seven-day
+unbonding cooldown. It exists because a record alone does not survive the
+obvious dodge: an agent with a bad history mints a fresh identity and starts
+clean. A bond makes discarding a name cost capital rather than only gas.
+
+**Only equivocation is slashable** -- the agent's own registered key signing
+two different outputs for the same step of the same run. A step has one answer,
+so signing two means telling different parties different things about the same
+work. Anyone can prove it from the two signatures, and no arbiter is involved.
+
+Demonstrated with a throwaway identity minted for the purpose (agent 14):
+bonded 0.002 OG, signed two conflicting outputs, and `proveEquivocation`
+slashed it -- half to the prover, half destroyed, `isSlashed` permanently true.
+
+Half is burned rather than all paid out because paying the whole bond to the
+prover would let a misbehaving agent slash itself and recover its stake
+instantly, skipping the cooldown.
+
 ## What is deliberately not solved
 
-- **Reputation without stake is still gameable.** Signed outputs stop
-  impersonation, not an agent that reliably does poor work. `reputationRegistry`
-  is still null and `policy.minReputation` is unimplemented.
+- **"Did poor work" is still not punishable.** Judging quality needs an oracle,
+  an oracle needs to be trusted, and a trusted judge is what this system does
+  not have. The bond is a sybil cost and an equivocation deterrent; it is not a
+  quality guarantee, and pretending otherwise would be worse than saying so.
+- **Reputation is still discardable, only dearer.** A bonded agent can abandon
+  its identity -- it just forfeits or waits out the bond first.
 - **Money can still be stranded** if an agent signs and the executor never
   allocates. The deadline refund bounds the loss to the funder, and the agent's
   only remedy is reputational.
@@ -163,7 +209,9 @@ ghostwriter.
   matters for re-deriving a downstream step's input, and §9 re-derives that from
   the recorded trace rather than by re-running the agent, so a verified run
   stays verified.
-- **A listing's endpoint is whatever its owner wrote.** The registry checks
-  ownership, not reachability. `publish` runs the conformance suite against the
-  endpoint before listing it, so it was reachable at least once — but nothing
-  re-checks it afterwards, and a listing can go stale.
+- **Endpoint health is an observation, not a fact.** The indexer probes listed
+  agents and the directory shows what it saw, with an age. But that is one
+  process's view from one vantage at one moment and a reader cannot check it --
+  unlike everything else here, which is recomputable from chain. Nothing
+  decides anything on it: the executor probes for itself when it matters, and a
+  dead agent produces a Failed step regardless.

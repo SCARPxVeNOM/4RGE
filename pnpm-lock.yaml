@@ -201,6 +201,9 @@ importers:
       '@0gflow/executor':
         specifier: workspace:*
         version: link:../../packages/executor
+      '@0gflow/publish':
+        specifier: workspace:*
+        version: link:../../packages/publish
       '@0gflow/storage':
         specifier: workspace:*
         version: link:../../packages/storage

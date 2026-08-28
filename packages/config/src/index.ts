@@ -36,6 +36,15 @@ export interface ContractAddresses {
   readonly agentAdapterRegistryV2: Address | null;
   readonly flowEscrowV2: Address | null;
   /**
+   * The agent bond — `AgentReputationV1`.
+   *
+   * Separate from `reputationRegistry`, which names ERC-8004's feedback
+   * registry: that records what clients say about an agent, and this records
+   * what the agent has at stake. Both are called reputation and they are not
+   * the same claim.
+   */
+  readonly agentReputation: Address | null;
+  /**
    * ERC-8004 IdentityRegistry. Pre-deployed on Galileo (§2), resolved by
    * on-chain probe rather than assumed: name "ERC-8004 Trustless Agent",
    * symbol AGENT, ERC-721 + Metadata.
@@ -99,6 +108,7 @@ const NO_CONTRACTS: ContractAddresses = {
   executionReceiptsV2: null,
   agentAdapterRegistryV2: null,
   flowEscrowV2: null,
+  agentReputation: null,
   flowEscrow: null,
   identityRegistry: null,
   agenticIdRegistry: null,
@@ -124,6 +134,8 @@ const GALILEO_CONTRACTS: ContractAddresses = {
   executionReceiptsV2: '0x5368974B886D04aC90ffB6f385e494FdF13E055b',
   agentAdapterRegistryV2: '0xB9b587D30740DD1197f6bC0E2FF56ee82E6C8a66',
   flowEscrowV2: '0xD3dF323f6d651d4C827a0143b89b98dD52101c7E',
+  // Deployed at block 51829721, CREATE2 salt keccak256("0gflow.reputation.v1").
+  agentReputation: '0x6f21357c9a1FEEfe033d11f8d2BC59FE970eFbB9',
   flowEscrow: '0xC40aC67bF4d63D8CdFeCBb80cE1C357c90291C39',
   identityRegistry: '0x7177a6867296406881E20d6647232314736Dd09A',
   agenticIdRegistry: '0x2700F6A3e505402C9daB154C5c6ab9cAEC98EF1F',

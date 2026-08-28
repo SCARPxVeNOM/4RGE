@@ -73,8 +73,37 @@ export interface StepSpec {
    * feed reputation or payment.
    */
   readonly requireSignedOutput?: boolean;
+  /**
+   * This step's own bar, replacing the flow's policy for this step.
+   *
+   * Replacing rather than adding: a step that states its own terms means them,
+   * and silently ANDing the flow's bar on top would make a step look more
+   * permissive than it is.
+   */
+  readonly requireReputation?: {
+    readonly minReputation?: number;
+    readonly minSteps?: number;
+    readonly minStake?: string;
+  };
   readonly timeoutMs?: number;
   readonly retries?: { readonly max: number; readonly backoffMs: number };
+}
+
+/**
+ * What a flow demands of every agent it hires — spec §7 step 2.
+ *
+ * A bar set here applies to the whole flow. A step may set its own
+ * `requireReputation`, which replaces this rather than adding to it: a step
+ * that states its own terms means them.
+ */
+export interface FlowPolicy {
+  /** Minimum success rate, 0..1, over `minSteps` attempted steps. */
+  readonly minReputation?: number;
+  /** How large the sample must be. Defaults to 10 — see core/reputation.ts. */
+  readonly minSteps?: number;
+  /** Minimum bond, in wei, posted to `AgentReputationV1`. */
+  readonly minStake?: string;
+  readonly failFast?: boolean;
 }
 
 export interface FlowSpec {
@@ -83,7 +112,7 @@ export interface FlowSpec {
   readonly inputs: Readonly<Record<string, JsonValue>>;
   readonly steps: readonly StepSpec[];
   readonly outputs?: Readonly<Record<string, JsonValue>>;
-  readonly policy?: JsonValue;
+  readonly policy?: FlowPolicy;
 }
 
 export interface PlannedStep extends StepSpec {

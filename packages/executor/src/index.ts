@@ -23,6 +23,8 @@ export {
   type AgentRegistry,
   type EscrowClient,
   type SchemaResolver,
+  type ReputationSource,
+  type StakeSource,
   type StepPayment,
   type OutputIdentity,
 } from './execute.js';
@@ -40,3 +42,4 @@ export {
 } from './adapters.js';
 export { ViemEscrow, EscrowError, type ViemEscrowOptions } from './escrow.js';
 export { ZgStorageSchemaSource, type ZgStorageSchemaSourceOptions } from './schemas.js';
+export { ViemStakeSource, type ViemStakeSourceOptions } from './stakes.js';
