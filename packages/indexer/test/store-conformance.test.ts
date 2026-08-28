@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from 'vitest';
 import { StepStatus, ZERO_BYTES32, type Hex } from '@0gflow/core';
 import { MemoryStore } from '../src/memory-store.js';
 import { PostgresStore } from '../src/postgres-store.js';
-import type { Store, StepRow } from '../src/store.js';
+import type { AgentListingRow, Store, StepRow } from '../src/store.js';
 
 /**
  * One suite, both implementations.
@@ -251,6 +251,163 @@ describe.each(implementations)('%s', (_name, create) => {
     expect(stats.steps).toBe(1);
     expect(stats.agents).toBe(1);
     expect(stats.cursor).toBe(77n);
+  });
+
+  // -------------------------------------------------------------------------
+  // Marketplace listings
+  //
+  // These were written for MemoryStore and mirrored into SQL by hand, and
+  // until now nothing checked the mirror. The version rule in particular is
+  // enforced in two very different ways -- a comparison in TypeScript and a
+  // WHERE clause on an ON CONFLICT -- so it is exactly the kind of pair that
+  // drifts silently.
+  // -------------------------------------------------------------------------
+
+  const listing = (agentId: bigint, over: Partial<AgentListingRow> = {}): AgentListingRow => ({
+    agentId,
+    owner: `0x${'aa'.repeat(20)}` as Hex,
+    kind: 0,
+    endpoint: `https://agents.example/${agentId}`,
+    schemaRoot: `0x${'11'.repeat(32)}` as Hex,
+    version: 1,
+    active: true,
+    payTo: `0x${'bb'.repeat(20)}` as Hex,
+    signer: `0x${'cc'.repeat(20)}` as Hex,
+    pricePerCall: 1_000n,
+    metadataURI: 'data:application/json;base64,e30=',
+    blockNumber: 100n,
+    blockHash: '0xblock100',
+    ...over,
+  });
+
+  test('stores and reads back every field of a listing', async () => {
+    const store = await create();
+    await store.upsertAgentListing(listing(7n));
+
+    const got = await store.getAgentListing(7n);
+    expect(got).not.toBeNull();
+    expect(got).toMatchObject({
+      agentId: 7n,
+      kind: 0,
+      endpoint: 'https://agents.example/7',
+      version: 1,
+      active: true,
+      pricePerCall: 1_000n,
+    });
+    // Addresses are lowercased on the way in, so a caller never has to guess
+    // which casing came back.
+    expect(got!.signer.toLowerCase()).toBe(`0x${'cc'.repeat(20)}`);
+  });
+
+  test('an unlisted agent reads as null, not as an empty listing', async () => {
+    const store = await create();
+    expect(await store.getAgentListing(999n)).toBeNull();
+  });
+
+  test('a later version replaces the listing', async () => {
+    const store = await create();
+    await store.upsertAgentListing(listing(7n));
+    await store.upsertAgentListing(
+      listing(7n, { version: 2, endpoint: 'https://moved.example/7', blockNumber: 200n }),
+    );
+
+    const got = await store.getAgentListing(7n);
+    expect(got!.version).toBe(2);
+    expect(got!.endpoint).toBe('https://moved.example/7');
+  });
+
+  // Versions only move forward in the registry, so a lower one means a log
+  // arrived out of order. Taking it would point the directory at an endpoint
+  // the agent has already left.
+  test('an earlier version is ignored', async () => {
+    const store = await create();
+    await store.upsertAgentListing(listing(7n, { version: 5, endpoint: 'https://current.example' }));
+    await store.upsertAgentListing(listing(7n, { version: 2, endpoint: 'https://stale.example' }));
+
+    const got = await store.getAgentListing(7n);
+    expect(got!.version).toBe(5);
+    expect(got!.endpoint).toBe('https://current.example');
+  });
+
+  test('re-applying the same version is accepted, so a replay is harmless', async () => {
+    const store = await create();
+    await store.upsertAgentListing(listing(7n));
+    await store.upsertAgentListing(listing(7n, { endpoint: 'https://same-version.example' }));
+    expect((await store.getAgentListing(7n))!.endpoint).toBe('https://same-version.example');
+  });
+
+  test('deactivation hides a listing without destroying it', async () => {
+    const store = await create();
+    await store.upsertAgentListing(listing(7n));
+    await store.deactivateAgentListing(7n, 300n);
+
+    const got = await store.getAgentListing(7n);
+    expect(got!.active).toBe(false);
+    // Still resolvable: an agent that stopped serving is not one that never
+    // existed, and past receipts still name it.
+    expect(got!.endpoint).toBe('https://agents.example/7');
+    expect(await store.listAgentListings(10, 0, { activeOnly: true })).toHaveLength(0);
+    expect(await store.listAgentListings(10, 0)).toHaveLength(1);
+  });
+
+  // The indexer may scan a window that starts after the registration, so a
+  // deactivation for an agent never seen is normal, not an error.
+  test('deactivating an unknown agent is a no-op', async () => {
+    const store = await create();
+    await expect(store.deactivateAgentListing(4242n, 300n)).resolves.toBeUndefined();
+    expect(await store.getAgentListing(4242n)).toBeNull();
+  });
+
+  test('lists newest first, and paginates', async () => {
+    const store = await create();
+    await store.upsertAgentListing(listing(7n, { blockNumber: 100n }));
+    await store.upsertAgentListing(listing(8n, { blockNumber: 200n }));
+    await store.upsertAgentListing(listing(9n, { blockNumber: 300n }));
+
+    expect((await store.listAgentListings(10, 0)).map((a) => a.agentId)).toEqual([9n, 8n, 7n]);
+    expect((await store.listAgentListings(2, 0)).map((a) => a.agentId)).toEqual([9n, 8n]);
+    expect((await store.listAgentListings(2, 2)).map((a) => a.agentId)).toEqual([7n]);
+    expect(await store.listAgentListings(10, 99)).toHaveLength(0);
+  });
+
+  test('filters by kind', async () => {
+    const store = await create();
+    await store.upsertAgentListing(listing(7n, { kind: 0 }));
+    await store.upsertAgentListing(listing(8n, { kind: 3, blockNumber: 200n }));
+
+    expect((await store.listAgentListings(10, 0, { kind: 3 })).map((a) => a.agentId)).toEqual([8n]);
+    expect((await store.listAgentListings(10, 0, { kind: 0 })).map((a) => a.agentId)).toEqual([7n]);
+  });
+
+  // Token ids are uint256. A BIGINT column would silently overflow anything
+  // above 2^63, which is an ordinary id for a registry that hashes into it.
+  test('survives a uint256 agent id', async () => {
+    const store = await create();
+    const huge = (1n << 256n) - 1n;
+    await store.upsertAgentListing(listing(huge));
+
+    expect((await store.getAgentListing(huge))!.agentId).toBe(huge);
+    expect((await store.listAgentListings(10, 0))[0]!.agentId).toBe(huge);
+  });
+
+  test('survives a uint256 price', async () => {
+    const store = await create();
+    const huge = (1n << 256n) - 1n;
+    await store.upsertAgentListing(listing(7n, { pricePerCall: huge }));
+    expect((await store.getAgentListing(7n))!.pricePerCall).toBe(huge);
+  });
+
+  // A reorg must forget listings written by blocks that no longer exist,
+  // exactly as it forgets receipts.
+  test('a rollback drops listings from the replaced blocks', async () => {
+    const store = await create();
+    await store.upsertAgentListing(listing(7n, { blockNumber: 100n }));
+    await store.upsertAgentListing(listing(8n, { blockNumber: 500n }));
+
+    await store.rollbackFrom(400n);
+
+    expect(await store.getAgentListing(8n)).toBeNull();
+    expect(await store.getAgentListing(7n)).not.toBeNull();
   });
 });
 
