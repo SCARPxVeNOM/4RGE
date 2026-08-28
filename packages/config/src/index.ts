@@ -108,10 +108,12 @@ const GALILEO_CONTRACTS: ContractAddresses = {
   flowRegistry: '0xe09aC2F04Fc663dB9ddb2824d44d5B1AFe7fD53f',
   executionReceipts: '0x741A36fAba40ee71223539a5A062FDEDC8574e30',
   agentAdapterRegistry: '0x239E66ca972bdA91542BA78c12B3003EFED8389e',
-  // Filled in by contracts/script/DeployV2.s.sol.
-  executionReceiptsV2: null,
-  agentAdapterRegistryV2: null,
-  flowEscrowV2: null,
+  // Deployed by contracts/script/DeployV2.s.sol at block 51785369, CREATE2
+  // salt keccak256("0gflow.v2"). Sharing v1's FlowRegistry, so a run id is
+  // unique across both receipt contracts and published flows stay published.
+  executionReceiptsV2: '0x5368974B886D04aC90ffB6f385e494FdF13E055b',
+  agentAdapterRegistryV2: '0xB9b587D30740DD1197f6bC0E2FF56ee82E6C8a66',
+  flowEscrowV2: '0xD3dF323f6d651d4C827a0143b89b98dD52101c7E',
   flowEscrow: '0xC40aC67bF4d63D8CdFeCBb80cE1C357c90291C39',
   identityRegistry: '0x7177a6867296406881E20d6647232314736Dd09A',
   agenticIdRegistry: '0x2700F6A3e505402C9daB154C5c6ab9cAEC98EF1F',
