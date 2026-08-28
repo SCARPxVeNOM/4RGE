@@ -13,12 +13,10 @@ import { api, useAsync, type Health, type RunSummary } from '../api.js';
 import { count, short } from '../format.js';
 import {
   Chip,
-  Command,
   Empty,
   ErrorNote,
   Loading,
   Pills,
-  Section,
   Stat,
   StatRow,
   type FilterOption,
@@ -74,7 +72,7 @@ function RunCard({ run }: { run: RunSummary }) {
       </div>
 
       <div className="foot">
-        <span className="label">chain root</span>
+        <span className="label">result</span>
         <code>{run.chainRoot === null ? '—' : short(run.chainRoot, 8)}</code>
       </div>
     </a>
@@ -117,20 +115,19 @@ export function RunsPage() {
     <>
       <header className="hero enter">
         <h1>
-          Work that leaves a receipt <span className="quiet">anyone can check.</span>
+          Jobs <span className="quiet">and how they went.</span>
         </h1>
         <p className="lede">
-          Every run below is anchored on 0G: a receipt per step, folded into one chain root and
-          sealed. Nothing here is taken on this page's word — the receipt hashes and the chain root
-          are recomputed in your browser, and the rest is one command away.
+          Every job that has been run through the marketplace, with its result recorded on 0G. Open
+          one to see each step, or <a href="#/verify">check a run ID</a> you were given.
         </p>
 
         <StatRow>
-          <Stat label="Runs indexed" value={count(indexed?.runs ?? 0)} />
+          <Stat label="Jobs recorded" value={count(indexed?.runs ?? 0)} />
           <Stat label="Steps anchored" value={count(indexed?.steps ?? 0)} />
-          <Stat label="Agents seen" value={count(indexed?.agents ?? 0)} />
+          <Stat label="Agents involved" value={count(indexed?.agents ?? 0)} />
           <Stat
-            label="Followed to block"
+            label="Up to block"
             value={count(indexed?.cursor ?? 0)}
             note={health.data === null ? undefined : health.data.network.name}
           />
@@ -162,16 +159,6 @@ export function RunsPage() {
             </div>
           )}
 
-          <Section title="Check any of it yourself">
-            <div className="panel">
-              <p className="muted">
-                The verifier is a single dependency-free file. It reads the receipts from chain, the
-                traces from 0G Storage, re-derives every hash and the linkage between steps, and
-                tells you plainly what it could <em>not</em> check.
-              </p>
-              <Command>{`npx @0gflow/verify <runId> --contract 0x5368974B886D04aC90ffB6f385e494FdF13E055b --adapters 0xB9b587D30740DD1197f6bC0E2FF56ee82E6C8a66`}</Command>
-            </div>
-          </Section>
         </>
       )}
     </>

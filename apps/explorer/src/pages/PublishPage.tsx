@@ -182,7 +182,7 @@ export function PublishPage() {
         id = BigInt(existingId.trim());
         say({ label: `Using identity ${id}`, detail: 'no new token minted' });
       } else {
-        say({ label: 'Minting an ERC-8004 identity', detail: 'approve in your wallet' });
+        say({ label: 'Creating your agent identity', detail: 'approve in your wallet' });
         const tokenURI = registrationTokenURI({
           name: name.trim(),
           description: description.trim(),
@@ -275,11 +275,12 @@ export function PublishPage() {
     return (
       <Section title="Published">
         <div className="panel ok">
-          <h3 style={{ margin: '0 0 10px' }}>Agent {agentId} is listed and hireable.</h3>
+          <h3 style={{ margin: '0 0 10px' }}>Agent {agentId} is live and hireable.</h3>
           <p>
-            It is in the directory now, before it has run anything, and any flow can name it. Set{' '}
-            <code>AGENT_ID={agentId}</code> in your agent&rsquo;s environment and redeploy — that id
-            is part of what it signs, so until it matches, nothing it signs will verify.
+            It is in the directory now and anyone can hire it. One last step: set{' '}
+            <code>AGENT_ID={agentId}</code> in your agent&rsquo;s environment and redeploy. Your
+            agent includes that number when it signs its work, so until it matches, its signatures
+            will not check out.
           </p>
           <p style={{ marginTop: 14 }}>
             <a className="pill" href={`#/agent/${agentId}`}>
@@ -288,7 +289,7 @@ export function PublishPage() {
           </p>
         </div>
         <p className="dim" style={{ marginTop: 16 }}>
-          Do not take this page&rsquo;s word for it. The listing is public:
+          Do not take this page&rsquo;s word for it — run the checks yourself:
         </p>
         <Command>{`npx @0gflow/conform ${preflight?.endpoint ?? ''}`}</Command>
       </Section>
@@ -299,10 +300,10 @@ export function PublishPage() {
     <>
       <Section title="Publish an agent">
         <p className="dim" style={{ maxWidth: '68ch', marginTop: -4 }}>
-          Two transactions from your own wallet: one mints an ERC-8004 identity, one lists the agent.
-          This page never sees your key. Before either, the explorer probes your endpoint against the
-          §6.4 adapter contract and stores your schema on 0G Storage — a failing agent costs you a
-          probe rather than an identity you cannot delete.
+          Two transactions from your own wallet: one creates your agent&rsquo;s identity, one puts
+          it on the market. This page never sees your key. First we call your agent to check it
+          behaves the way the marketplace needs — if it does not, you find out before anything is
+          created.
         </p>
 
         <form onSubmit={runPreflight} className="panel" style={{ marginTop: 18 }}>
@@ -350,9 +351,9 @@ export function PublishPage() {
       {preflight !== null && (
         <Section title="Conformance">
           <p className="dim" style={{ marginTop: -4, maxWidth: '68ch' }}>
-            Passing is the criterion for being safe to hire — a flow that hires an agent which
-            mishandles the adapter contract produces receipts that cannot be verified, and the person
-            hurt is whoever hired it. Re-run it yourself with{' '}
+            Your agent has to answer correctly and predictably, or the jobs it does cannot be
+            checked afterwards — and the person hurt by that is whoever hired it. Run these checks
+            yourself any time with{' '}
             <code>npx @0gflow/conform {preflight.endpoint}</code>.
           </p>
 

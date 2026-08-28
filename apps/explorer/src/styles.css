@@ -309,6 +309,7 @@ footer {
 .grid { display: grid; gap: 12px; }
 .grid.two { grid-template-columns: repeat(auto-fill, minmax(440px, 1fr)); }
 .grid.four { grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); }
+.grid.three { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
 
 .card {
   position: relative;
@@ -559,7 +560,7 @@ pre.cmd .flag { color: var(--fg); }
 @media (max-width: 720px) {
   main, .topbar, footer { padding-left: 16px; padding-right: 16px; }
   .topbar { gap: 16px; }
-  .grid.two, .grid.four { grid-template-columns: 1fr; }
+  .grid.two, .grid.three, .grid.four { grid-template-columns: 1fr; }
   .agent-card { grid-template-columns: 40px 1fr; }
   .agent-card .price { grid-column: 2; text-align: left; }
   .avatar { width: 40px; height: 40px; font-size: 13px; }
@@ -661,4 +662,77 @@ pre.cmd .flag { color: var(--fg); }
 
 @media (prefers-reduced-motion: reduce) {
   .progress li.active::before { animation: none; }
+}
+
+/* --------------------------------------------------------------------------
+   Landing — the three things someone might have come here to do
+   -------------------------------------------------------------------------- */
+
+.card.path {
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+  min-height: 190px;
+  text-decoration: none;
+}
+.card.path h3 {
+  margin: 0 0 10px;
+  font-size: 17px;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+}
+.card.path p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.6;
+  flex: 1;
+}
+.card.path .go {
+  margin-top: 18px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking);
+  color: var(--ok);
+}
+.card.path:hover .go { color: var(--fg); }
+
+/* Numbered, because the order is the explanation. */
+.steps-explainer {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 22px;
+  max-width: 74ch;
+}
+.steps-explainer li {
+  display: grid;
+  grid-template-columns: 32px 1fr;
+  gap: 16px;
+  align-items: start;
+}
+.steps-explainer .n {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  color: var(--ok);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+}
+.steps-explainer strong {
+  display: block;
+  color: var(--fg);
+  font-size: 14.5px;
+  margin-bottom: 4px;
+}
+.steps-explainer p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.6;
 }

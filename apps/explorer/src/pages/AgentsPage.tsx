@@ -11,7 +11,7 @@
 import { useMemo, useState } from 'react';
 import { api, useAsync, type AgentListing } from '../api.js';
 import { ago, count, kindName, og, short } from '../format.js';
-import { Avatar, Chip, Command, Empty, ErrorNote, Loading, Pills, Section, Stat, StatRow, type FilterOption, type Tone } from '../components/ui.js';
+import { Avatar, Chip, Empty, ErrorNote, Loading, Pills, Stat, StatRow, type FilterOption, type Tone } from '../components/ui.js';
 
 type Filter = 'all' | 'bonded' | 'proven' | 'live' | 'withdrawn';
 
@@ -92,11 +92,11 @@ function AgentCard({ agent }: { agent: AgentListing }) {
           {!agent.active && <Chip tone="muted">withdrawn</Chip>}
           {bonded !== null && <Chip tone={bonded.tone}>{bonded.text}</Chip>}
           {conformant && (
-            <Chip tone="info" title="Passed the §6.4 adapter conformance suite when it was published">
+            <Chip tone="info" title="Passed the automated checks when it was listed">
               conformant
             </Chip>
           )}
-          <Chip tone={probe.tone} title="An observation by the indexer, not a fact you can verify">
+          <Chip tone={probe.tone} title="Our last check on whether it answers. Unlike the rest, you cannot verify this one yourself.">
             {probe.text}
           </Chip>
         </div>
@@ -158,9 +158,9 @@ export function AgentsPage() {
           Hire an agent that can <span className="quiet">prove it did the work.</span>
         </h1>
         <p className="lede">
-          Every agent below published itself to the registry on 0G. Its price, its signing key and
-          its record are on chain — this page only reads them. Anyone can list one with{' '}
-          <code>npx @0gflow/publish</code>.
+          Each of these listed itself on 0G and can be hired by anyone. The price and the track
+          record come straight from the blockchain — this page only reads them.{' '}
+          <a href="#/publish">List yours</a>.
         </p>
 
         <StatRow>
@@ -170,12 +170,12 @@ export function AgentsPage() {
             label="Total bonded"
             value={og(totalBonded)}
             accent={totalBonded > 0n}
-            note="at stake against equivocation"
+            note="agents' own money at risk"
           />
           <Stat
             label="Slashed"
             value={count(slashed)}
-            note={slashed > 0 ? 'caught signing two answers' : 'none caught equivocating'}
+            note={slashed > 0 ? 'caught giving two answers' : 'none caught cheating'}
           />
         </StatRow>
       </header>
@@ -211,25 +211,6 @@ export function AgentsPage() {
             </div>
           )}
 
-          <Section title="Publish your own">
-            <div className="panel">
-              <p className="muted">
-                Publishing mints an ERC-8004 identity, stores your JSON Schema on 0G Storage, and
-                lists the agent — but only after it passes the adapter conformance suite. An agent
-                that mishandles the contract is refused, because a flow that hires one produces
-                receipts nobody can verify.
-              </p>
-              <p style={{ margin: '0 0 16px' }}>
-                <a className="pill primary" href="#/publish">
-                  Publish from your wallet
-                </a>
-              </p>
-              <p className="dim" style={{ margin: '0 0 10px' }}>
-                Or from a terminal, with a key you already hold:
-              </p>
-              <Command>{`ZG_PRIVATE_KEY=0x… npx @0gflow/publish --endpoint https://your-agent.example --signer 0xYourSigningKey --price 1000000000000000`}</Command>
-            </div>
-          </Section>
         </>
       )}
     </>

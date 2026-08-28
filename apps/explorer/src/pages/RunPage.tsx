@@ -45,12 +45,11 @@ function ChainRootPanel({ check }: { check: ChainRootCheck }) {
     return (
       <div className="panel ok">
         <p>
-          <strong className="ok">Chain root checked in your browser.</strong>
+          <strong className="ok">The receipts add up.</strong>
         </p>
         <p className="muted">
-          The indexed receipts fold to <code>{short(check.computed, 14)}</code>, which is the root
-          this run sealed on chain. The page did not take the API's word for that — it recomputed
-          the fold here.
+          The steps below combine to <code>{short(check.computed, 14)}</code>, which is what this run
+          recorded on the blockchain. Your browser worked that out, not this site.
         </p>
       </div>
     );
@@ -59,12 +58,12 @@ function ChainRootPanel({ check }: { check: ChainRootCheck }) {
     return (
       <div className="panel bad">
         <p>
-          <strong className="bad">These receipts do not fold to the sealed root.</strong>
+          <strong className="bad">The receipts do not add up.</strong>
         </p>
         <p className="muted">
-          Computed <code>{short(check.computed, 14)}</code>, sealed{' '}
-          <code>{short(check.sealed, 14)}</code>. Either the index is wrong or the run is. Do not
-          rely on this page — check it with the verifier.
+          These steps give <code>{short(check.computed, 14)}</code> but the blockchain says{' '}
+          <code>{short(check.sealed, 14)}</code>. Something is wrong — possibly this site. Check it
+          yourself with the command on the <a href="#/verify">verify page</a>.
         </p>
       </div>
     );
@@ -73,12 +72,11 @@ function ChainRootPanel({ check }: { check: ChainRootCheck }) {
     return (
       <div className="panel warn">
         <p>
-          <strong className="warn">Not sealed on chain.</strong>
+          <strong className="warn">This job has not finished.</strong>
         </p>
         <p className="muted">
-          The receipts indexed so far fold to <code>{short(check.computed, 14)}</code>, but no{' '}
-          <code>RunSealed</code> event has been seen, so there is nothing to compare it against. The
-          run may still be executing.
+          Steps have been recorded, but no final result has been written to the blockchain yet, so
+          there is nothing to compare them against. It may still be running.
         </p>
       </div>
     );
@@ -86,7 +84,7 @@ function ChainRootPanel({ check }: { check: ChainRootCheck }) {
   return (
     <div className="panel warn">
       <p>
-        <strong className="warn">The chain root could not be computed.</strong>
+        <strong className="warn">Not enough was recorded to check this.</strong>
       </p>
       <p className="muted">{check.reason}</p>
     </div>
@@ -164,7 +162,7 @@ export function RunPage({ runId }: { runId: string }) {
         <StatRow>
           <Stat label="Steps" value={count(run.stepCount)} />
           <Stat label="Succeeded" value={count(ok)} accent={ok === run.stepCount && ok > 0} />
-          <Stat label="With an attestation" value={count(attested)} />
+          <Stat label="With hardware proof" value={count(attested)} />
           <Stat label="Sealed at block" value={count(run.lastBlock)} />
         </StatRow>
       </header>
@@ -181,9 +179,9 @@ export function RunPage({ runId }: { runId: string }) {
                 <th className="num">#</th>
                 <th>Agent</th>
                 <th>Status</th>
-                <th>Attestation</th>
-                <th>Input → output</th>
-                <th>Trace</th>
+                <th>Hardware proof</th>
+                <th>In → out</th>
+                <th>Record</th>
                 <th>Receipt</th>
                 <th>Started</th>
                 <th />
@@ -197,20 +195,20 @@ export function RunPage({ runId }: { runId: string }) {
           </table>
         </div>
         <p className="dim" style={{ fontSize: 12, marginTop: 10 }}>
-          Receipt hashes are computed in this page from the fields beside them, so each one can be
-          compared against its <code>StepAnchored</code> log without trusting the API.
+          Each receipt code is worked out here from the values next to it, so you can match it
+          against the blockchain record without trusting this site.
         </p>
       </Section>
 
-      <Section title="What this page did not check">
+      <Section title="What this page could not check">
         <div className="panel">
           <p className="muted">
-            The traces live on 0G Storage, so a browser cannot re-derive the linkage between steps,
-            re-check an attestation binding, or confirm that an agent's signature matches the key it
-            published. Those need the verifier, which reads all of it and reports what it could not
-            establish rather than rounding up.
+            The full record of each step is stored on 0G Storage, which a browser cannot reach. So
+            this page cannot confirm the steps genuinely follow on from each other, or that each
+            agent&rsquo;s signature matches the key it published. This command checks all of it, on
+            your machine.
           </p>
-          <Command>{`npx @0gflow/verify ${runId} --contract 0x5368974B886D04aC90ffB6f385e494FdF13E055b --adapters 0xB9b587D30740DD1197f6bC0E2FF56ee82E6C8a66`}</Command>
+          <Command>{`npx @0gflow/verify ${runId}`}</Command>
         </div>
       </Section>
 

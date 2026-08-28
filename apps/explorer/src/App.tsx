@@ -15,9 +15,11 @@ import { short } from './format.js';
 import { AgentPage } from './pages/AgentPage.js';
 import { AgentsPage } from './pages/AgentsPage.js';
 import { FlowPage } from './pages/FlowPage.js';
+import { HomePage } from './pages/HomePage.js';
 import { RunPage } from './pages/RunPage.js';
 import { PublishPage } from './pages/PublishPage.js';
 import { RunsPage } from './pages/RunsPage.js';
+import { VerifyPage } from './pages/VerifyPage.js';
 
 /** The hash path as segments: `#/agent/12` → `['agent', '12']`. */
 function useHashRoute(): string[] {
@@ -39,7 +41,7 @@ function useHashRoute(): string[] {
 }
 
 function TopBar({ route, health }: { route: string[]; health: Health | null }) {
-  const section = route[0] ?? 'runs';
+  const section = route[0] ?? 'home';
   const current = (id: string) => (section === id ? 'page' : undefined);
 
   return (
@@ -51,11 +53,17 @@ function TopBar({ route, health }: { route: string[]; health: Health | null }) {
       </a>
 
       <nav className="topnav">
-        <a href="#/" aria-current={section === 'runs' || section === 'run' || section === 'flow' ? 'page' : undefined}>
-          Runs
-        </a>
         <a href="#/agents" aria-current={section === 'agents' || section === 'agent' ? 'page' : undefined}>
           Agents
+        </a>
+        <a
+          href="#/runs"
+          aria-current={section === 'runs' || section === 'run' || section === 'flow' ? 'page' : undefined}
+        >
+          Jobs
+        </a>
+        <a href="#/verify" aria-current={section === 'verify' ? 'page' : undefined}>
+          Verify
         </a>
         <a href="#/publish" aria-current={section === 'publish' ? 'page' : undefined}>
           Publish
@@ -80,8 +88,10 @@ export default function App() {
   const route = useHashRoute();
   const health = useAsync(() => api<Health>('/api/health'), []);
 
-  let page = <RunsPage />;
+  let page = <HomePage />;
   if (route[0] === 'agents') page = <AgentsPage />;
+  else if (route[0] === 'runs') page = <RunsPage />;
+  else if (route[0] === 'verify') page = <VerifyPage />;
   else if (route[0] === 'publish') page = <PublishPage />;
   else if (route[0] === 'agent' && route[1] !== undefined) page = <AgentPage agentId={route[1]} />;
   else if (route[0] === 'run' && route[1] !== undefined) page = <RunPage runId={route[1]} />;
@@ -95,9 +105,8 @@ export default function App() {
       <main key={route.join('/')}>{page}</main>
       <footer>
         <p style={{ margin: '0 0 8px' }}>
-          Read-only, and nothing here asks to be believed. Every figure is derived from public chain
-          data — recheck any of it with <code>npx @0gflow/verify &lt;runId&gt;</code>, which does not
-          depend on this service being up.
+          Everything here is read from the 0G blockchain, and none of it asks to be believed —{' '}
+          <a href="#/verify">check any of it yourself</a>. Testnet only; nothing has been audited.
         </p>
         <p style={{ margin: 0, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
           {(

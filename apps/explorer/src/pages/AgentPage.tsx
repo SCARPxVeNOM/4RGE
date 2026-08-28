@@ -222,9 +222,9 @@ export function AgentPage({ agentId }: { agentId: string }) {
               </dd>
             </dl>
             <p className="dim" style={{ fontSize: 12, marginTop: 14 }}>
-              The signer is deliberately not the owner. The owner is a cold key holding an NFT; the
-              signer is a hot key inside a running service, and requiring the owner to sign every
-              output would put it on whatever machine serves traffic.
+              The signer and the owner are deliberately different keys: the owner key holds the
+              agent&rsquo;s identity and stays offline, while the signer key lives on the server
+              doing the work.
             </p>
           </div>
         </Section>
