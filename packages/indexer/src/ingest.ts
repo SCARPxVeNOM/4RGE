@@ -21,7 +21,15 @@ import {
   decodeAdapterDeactivated,
   decodeAdapterRegistered,
   decodeRunSealed,
+  decodeSlashed,
+  decodeStaked,
   decodeStepAnchored,
+  decodeUnstakeRequested,
+  decodeWithdrawn,
+  SLASHED_TOPIC,
+  STAKED_TOPIC,
+  UNSTAKE_REQUESTED_TOPIC,
+  WITHDRAWN_TOPIC,
   RUN_SEALED_TOPIC,
   STEP_ANCHORED_TOPIC,
 } from '@0gflow/verify/decode';
@@ -52,6 +60,13 @@ export interface IngestArgs {
    * wrong way round — discovery has to come first.
    */
   readonly adapterRegistry?: string;
+  /**
+   * `AgentReputationV1`, so bonds are indexed too.
+   *
+   * Optional, like the adapter registry: an indexer pointed at a network
+   * without it works and simply shows no bonds.
+   */
+  readonly agentReputation?: string;
   readonly from: bigint;
   readonly to: bigint;
   /** Blocks below head-finalityDepth are treated as settled. */
@@ -64,6 +79,7 @@ export interface IngestResult {
   readonly steps: number;
   readonly seals: number;
   readonly listings: number;
+  readonly bonds: number;
   /** Set when a reorg was detected and rows were dropped from this height. */
   readonly reorgedFrom: bigint | null;
 }
@@ -99,7 +115,7 @@ async function findReorg(
 }
 
 export async function ingestRange(args: IngestArgs): Promise<IngestResult> {
-  const { store, chain, contract, adapterRegistry, to, finalityDepth } = args;
+  const { store, chain, contract, adapterRegistry, agentReputation, to, finalityDepth } = args;
   let { from } = args;
 
   const reorgedFrom = await findReorg(store, chain, from, to, finalityDepth);
@@ -115,10 +131,12 @@ export async function ingestRange(args: IngestArgs): Promise<IngestResult> {
   const logs = [
     ...(await chain.getLogs(from, to, contract)),
     ...(adapterRegistry === undefined ? [] : await chain.getLogs(from, to, adapterRegistry)),
+    ...(agentReputation === undefined ? [] : await chain.getLogs(from, to, agentReputation)),
   ];
   let steps = 0;
   let seals = 0;
   let listings = 0;
+  let bonds = 0;
 
   // Ascending order so a seal never lands before the receipts it counts.
   const ordered = [...logs].sort((a, b) => {
@@ -186,12 +204,40 @@ export async function ingestRange(args: IngestArgs): Promise<IngestResult> {
       const gone = decodeAdapterDeactivated(log);
       await store.deactivateAgentListing(gone.agentId, gone.blockNumber);
       listings += 1;
+    } else if (
+      topic === STAKED_TOPIC ||
+      topic === SLASHED_TOPIC ||
+      topic === WITHDRAWN_TOPIC ||
+      topic === UNSTAKE_REQUESTED_TOPIC
+    ) {
+      // UnstakeRequested is the one event that does not restate the bond — it
+      // only starts the clock — so the current amount is read back and carried
+      // through rather than reset to zero.
+      let change;
+      if (topic === STAKED_TOPIC) change = decodeStaked(log);
+      else if (topic === SLASHED_TOPIC) change = decodeSlashed(log);
+      else if (topic === WITHDRAWN_TOPIC) change = decodeWithdrawn(log);
+      else {
+        const agentId = BigInt(log.topics[1]!);
+        const held = (await store.getAgentBond(agentId))?.amount ?? 0n;
+        change = decodeUnstakeRequested(log, held);
+      }
+
+      await store.upsertAgentBond({
+        agentId: change.agentId,
+        amount: change.amount,
+        unlockAt: change.unlockAt,
+        slashed: change.slashed,
+        blockNumber: change.blockNumber,
+        blockHash: log.blockHash,
+      });
+      bonds += 1;
     }
   }
 
   await store.setCursor(to);
 
-  return { scannedFrom: from, scannedTo: to, steps, seals, listings, reorgedFrom };
+  return { scannedFrom: from, scannedTo: to, steps, seals, listings, bonds, reorgedFrom };
 }
 
 export interface FollowArgs extends Omit<IngestArgs, 'from' | 'to'> {

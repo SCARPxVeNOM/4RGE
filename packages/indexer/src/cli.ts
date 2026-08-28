@@ -37,6 +37,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     ? (network.contracts.executionReceiptsV2 ?? requireAddress(network, 'executionReceipts'))
     : requireAddress(network, 'executionReceipts');
   const adapterRegistry = network.contracts.agentAdapterRegistryV2 ?? undefined;
+  const agentReputation = network.contracts.agentReputation ?? undefined;
   // Following v2 means starting where v2 was deployed. Using v1's block would
   // scan 1.4M blocks over which the contracts did not exist.
   const deploymentBlock = BigInt(
@@ -63,6 +64,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   console.log(`  network   ${network.displayName} (${network.chainId})`);
   console.log(`  contract  ${contract}`);
   console.log(`  registry  ${adapterRegistry ?? 'not configured — no agent directory'}`);
+  console.log(`  bonds     ${agentReputation ?? 'not configured — no agent bonds'}`);
   console.log(`  store     ${useMemory ? 'memory' : 'postgres'}`);
   console.log(`  from      block ${deploymentBlock}`);
   console.log(`  finality  ${FINALITY_DEPTH} blocks\n`);
@@ -73,13 +75,14 @@ export async function main(argv: readonly string[]): Promise<number> {
       chain,
       contract,
       ...(adapterRegistry === undefined ? {} : { adapterRegistry }),
+      ...(agentReputation === undefined ? {} : { agentReputation }),
       deploymentBlock,
       finalityDepth: FINALITY_DEPTH,
       onProgress: (r) => {
-        if (r.steps > 0 || r.seals > 0 || r.listings > 0 || r.reorgedFrom !== null) {
+        if (r.steps > 0 || r.seals > 0 || r.listings > 0 || r.bonds > 0 || r.reorgedFrom !== null) {
           const reorg = r.reorgedFrom === null ? '' : `  REORG from ${r.reorgedFrom}`;
           console.log(
-            `  ${r.scannedFrom}–${r.scannedTo}  ${r.steps} step(s)  ${r.seals} seal(s)  ${r.listings} listing(s)${reorg}`,
+            `  ${r.scannedFrom}–${r.scannedTo}  ${r.steps} step(s)  ${r.seals} seal(s)  ${r.listings} listing(s)  ${r.bonds} bond event(s)${reorg}`,
           );
         }
       },

@@ -66,8 +66,12 @@ export function createServer(options: ServerOptions): FastifyInstance {
       network: { name: network.name, chainId: network.chainId, explorer: network.explorerUrl },
       contracts: {
         executionReceipts: network.contracts.executionReceipts,
+        executionReceiptsV2: network.contracts.executionReceiptsV2,
         flowRegistry: network.contracts.flowRegistry,
         identityRegistry: network.contracts.identityRegistry,
+        agentAdapterRegistryV2: network.contracts.agentAdapterRegistryV2,
+        flowEscrowV2: network.contracts.flowEscrowV2,
+        agentReputation: network.contracts.agentReputation,
       },
       indexed: stats,
     });
@@ -166,11 +170,17 @@ export function createServer(options: ServerOptions): FastifyInstance {
     // yet" and "zero successes" are different statements.
     const agents = await Promise.all(
       listings.map(async (listing) => {
-        const stats = await store.getAgent(listing.agentId);
-        const health = await store.getAgentHealth(listing.agentId);
+        const [stats, health, bond] = await Promise.all([
+          store.getAgent(listing.agentId),
+          store.getAgentHealth(listing.agentId),
+          store.getAgentBond(listing.agentId),
+        ]);
         return {
           ...listing,
           metadata: decodeMetadata(listing.metadataURI),
+          // Verifiable, unlike health: the bond is folded from on-chain
+          // events, so anyone can replay them to the same numbers.
+          bond,
           // An observation, not a fact anyone can check — see the note on
           // AgentHealthRow. Reported with its timestamp so a reader can see
           // how old it is rather than assuming it is current.
@@ -201,6 +211,7 @@ export function createServer(options: ServerOptions): FastifyInstance {
     const listing = await store.getAgentListing(id);
     const agent = await store.getAgent(id);
     const health = await store.getAgentHealth(id);
+    const bond = await store.getAgentBond(id);
     // Either is enough to have something to show. A published agent that has
     // never run has a listing and no statistics; an agent that ran before the
     // marketplace existed has statistics and no listing.
@@ -213,6 +224,7 @@ export function createServer(options: ServerOptions): FastifyInstance {
       listing:
         listing === null ? null : { ...listing, metadata: decodeMetadata(listing.metadataURI) },
       health,
+      bond,
       agent: {
         agentId: id,
         stepCount: 0,

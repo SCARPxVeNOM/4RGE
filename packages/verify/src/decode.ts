@@ -232,3 +232,73 @@ export function decodeAdapterDeactivated(log: RawLog): AdapterDeactivation {
     blockNumber: BigInt(log.blockNumber),
   };
 }
+
+// ---------------------------------------------------------------------------
+// The agent bond — AgentReputationV1
+// ---------------------------------------------------------------------------
+
+export const STAKED_SIGNATURE = 'Staked(uint256,address,uint256,uint256)';
+export const SLASHED_SIGNATURE = 'Slashed(uint256,address,uint256,uint256,bytes32,uint32)';
+export const UNSTAKE_REQUESTED_SIGNATURE = 'UnstakeRequested(uint256,uint64)';
+export const WITHDRAWN_SIGNATURE = 'Withdrawn(uint256,address,uint256)';
+
+export const STAKED_TOPIC = topicOf(STAKED_SIGNATURE);
+export const SLASHED_TOPIC = topicOf(SLASHED_SIGNATURE);
+export const UNSTAKE_REQUESTED_TOPIC = topicOf(UNSTAKE_REQUESTED_SIGNATURE);
+export const WITHDRAWN_TOPIC = topicOf(WITHDRAWN_SIGNATURE);
+
+/**
+ * What a bond event says about an agent's stake, as an absolute state rather
+ * than a delta.
+ *
+ * `Staked` carries the running total, not just the increment, so every event
+ * here sets the bond outright. That makes replaying a log idempotent: an
+ * indexer that sees the same event twice — a retry, an overlapping scan —
+ * lands on the same number instead of double-counting.
+ */
+export interface BondChange {
+  readonly agentId: bigint;
+  /** The bond after this event. */
+  readonly amount: bigint;
+  /** Unix seconds a withdrawal unlocks; 0 when none is pending. */
+  readonly unlockAt: bigint;
+  readonly slashed: boolean;
+  readonly txHash: Hex;
+  readonly blockNumber: bigint;
+  readonly logIndex: number;
+}
+
+function bondBase(log: RawLog): Pick<BondChange, 'agentId' | 'txHash' | 'blockNumber' | 'logIndex'> {
+  return {
+    agentId: asUint(log.topics[1]!.slice(2)),
+    txHash: log.transactionHash.toLowerCase() as Hex,
+    blockNumber: BigInt(log.blockNumber),
+    logIndex: Number(BigInt(log.logIndex)),
+  };
+}
+
+export function decodeStaked(log: RawLog): BondChange {
+  requireTopic(log, STAKED_TOPIC, 3, 'Staked');
+  // data: amount, total. The total is what the bond now stands at; staking
+  // also cancels any pending withdrawal, so unlockAt returns to zero.
+  return { ...bondBase(log), amount: asUint(word(log.data, 1, 'total')), unlockAt: 0n, slashed: false };
+}
+
+export function decodeUnstakeRequested(log: RawLog, current: bigint): BondChange {
+  requireTopic(log, UNSTAKE_REQUESTED_TOPIC, 2, 'UnstakeRequested');
+  // The amount is unchanged; only the clock started. The caller supplies what
+  // it already knows, because this event does not restate the bond.
+  return { ...bondBase(log), amount: current, unlockAt: asUint(word(log.data, 0, 'unlockAt')), slashed: false };
+}
+
+export function decodeWithdrawn(log: RawLog): BondChange {
+  requireTopic(log, WITHDRAWN_TOPIC, 3, 'Withdrawn');
+  return { ...bondBase(log), amount: 0n, unlockAt: 0n, slashed: false };
+}
+
+export function decodeSlashed(log: RawLog): BondChange {
+  requireTopic(log, SLASHED_TOPIC, 3, 'Slashed');
+  // Permanent: a slashed identity cannot be rehabilitated by staking again,
+  // so this flag never goes back.
+  return { ...bondBase(log), amount: 0n, unlockAt: 0n, slashed: true };
+}

@@ -17,6 +17,7 @@
 import pg from 'pg';
 import { StepStatus, ZERO_BYTES32, type Hex } from '@0gflow/core';
 import type {
+  AgentBondRow,
   AgentHealthRow,
   AgentListingFilter,
   AgentListingRow,
@@ -118,6 +119,20 @@ CREATE INDEX IF NOT EXISTS agent_listings_active ON agent_listings (active);
 -- Deliberately NOT rolled back on a reorg, unlike every other table here.
 -- Those rows describe a chain that no longer exists; this one describes
 -- whether an HTTP endpoint answered, which no chain reorganisation changes.
+-- An agent's bond, folded from AgentReputationV1 events.
+--
+-- Rolled back on a reorg, unlike agent_health: these rows describe events on a
+-- chain, and if that chain is replaced the bond they describe never happened.
+CREATE TABLE IF NOT EXISTS agent_bonds (
+  agent_id     NUMERIC PRIMARY KEY,
+  amount       NUMERIC NOT NULL,
+  unlock_at    NUMERIC NOT NULL,
+  slashed      BOOLEAN NOT NULL,
+  block_number NUMERIC NOT NULL,
+  block_hash   TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agent_bonds_block ON agent_bonds (block_number);
+
 CREATE TABLE IF NOT EXISTS agent_health (
   agent_id             NUMERIC PRIMARY KEY,
   checked_at           NUMERIC NOT NULL,
@@ -233,6 +248,7 @@ export class PostgresStore implements Store {
       await client.query('DELETE FROM seals  WHERE block_number >= $1', [b]);
       await client.query('DELETE FROM flows  WHERE block_number >= $1', [b]);
       await client.query('DELETE FROM agent_listings WHERE block_number >= $1', [b]);
+      await client.query('DELETE FROM agent_bonds WHERE block_number >= $1', [b]);
       await client.query('DELETE FROM blocks WHERE block_number >= $1', [b]);
       await client.query(
         'UPDATE indexer_state SET cursor_block = GREATEST($1::NUMERIC - 1, 0) WHERE id = 1 AND cursor_block >= $1',
@@ -377,6 +393,46 @@ export class PostgresStore implements Store {
       latencyMs: row['latency_ms'] === null ? null : Number(row['latency_ms']),
       consecutiveFailures: Number(row['consecutive_failures']),
       lastError: row['last_error'] === null ? null : String(row['last_error']),
+    };
+  }
+
+  async upsertAgentBond(bond: AgentBondRow): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO agent_bonds (agent_id, amount, unlock_at, slashed, block_number, block_hash)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (agent_id) DO UPDATE SET
+         amount = EXCLUDED.amount,
+         unlock_at = EXCLUDED.unlock_at,
+         -- Sticky: a slashed identity stays slashed whatever arrives next.
+         slashed = agent_bonds.slashed OR EXCLUDED.slashed,
+         block_number = EXCLUDED.block_number,
+         block_hash = EXCLUDED.block_hash
+       -- Later blocks win; within a block the ingester feeds log order.
+       WHERE agent_bonds.block_number <= EXCLUDED.block_number`,
+      [
+        bond.agentId.toString(),
+        bond.amount.toString(),
+        bond.unlockAt.toString(),
+        bond.slashed,
+        bond.blockNumber.toString(),
+        bond.blockHash,
+      ],
+    );
+  }
+
+  async getAgentBond(agentId: bigint): Promise<AgentBondRow | null> {
+    const { rows } = await this.pool.query('SELECT * FROM agent_bonds WHERE agent_id = $1', [
+      agentId.toString(),
+    ]);
+    const row = rows[0] as Record<string, unknown> | undefined;
+    if (row === undefined) return null;
+    return {
+      agentId: BigInt(String(row['agent_id'])),
+      amount: BigInt(String(row['amount'])),
+      unlockAt: BigInt(String(row['unlock_at'])),
+      slashed: Boolean(row['slashed']),
+      blockNumber: BigInt(String(row['block_number'])),
+      blockHash: String(row['block_hash']),
     };
   }
 

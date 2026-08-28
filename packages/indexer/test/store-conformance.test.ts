@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from 'vitest';
 import { StepStatus, ZERO_BYTES32, type Hex } from '@0gflow/core';
 import { MemoryStore } from '../src/memory-store.js';
 import { PostgresStore } from '../src/postgres-store.js';
-import type { AgentListingRow, Store, StepRow } from '../src/store.js';
+import type { AgentBondRow, AgentListingRow, Store, StepRow } from '../src/store.js';
 
 /**
  * One suite, both implementations.
@@ -395,6 +395,90 @@ describe.each(implementations)('%s', (_name, create) => {
     const huge = (1n << 256n) - 1n;
     await store.upsertAgentListing(listing(7n, { pricePerCall: huge }));
     expect((await store.getAgentListing(7n))!.pricePerCall).toBe(huge);
+  });
+
+  // -------------------------------------------------------------------------
+  // Agent bonds
+  //
+  // The sticky-slashed rule lives twice — an OR in TypeScript and an OR in an
+  // ON CONFLICT — and getting it wrong would let a slashed identity come back
+  // clean, which is the one thing the flag exists to prevent.
+  // -------------------------------------------------------------------------
+
+  const bond = (over: Partial<AgentBondRow> = {}): AgentBondRow => ({
+    agentId: 7n,
+    amount: 1_000n,
+    unlockAt: 0n,
+    slashed: false,
+    blockNumber: 100n,
+    blockHash: '0xblock100',
+    ...over,
+  });
+
+  test('records and reads back a bond', async () => {
+    const store = await create();
+    await store.upsertAgentBond(bond());
+    expect(await store.getAgentBond(7n)).toMatchObject({
+      agentId: 7n,
+      amount: 1_000n,
+      unlockAt: 0n,
+      slashed: false,
+    });
+  });
+
+  test('an agent that never bonded has none', async () => {
+    const store = await create();
+    expect(await store.getAgentBond(999n)).toBeNull();
+  });
+
+  test('a later block replaces an earlier one', async () => {
+    const store = await create();
+    await store.upsertAgentBond(bond({ amount: 1_000n, blockNumber: 100n }));
+    await store.upsertAgentBond(bond({ amount: 5_000n, blockNumber: 200n }));
+    expect((await store.getAgentBond(7n))!.amount).toBe(5_000n);
+  });
+
+  // A replayed or out-of-order log must not rewind the bond to an old figure.
+  test('an earlier block does not', async () => {
+    const store = await create();
+    await store.upsertAgentBond(bond({ amount: 5_000n, blockNumber: 200n }));
+    await store.upsertAgentBond(bond({ amount: 1_000n, blockNumber: 100n }));
+    expect((await store.getAgentBond(7n))!.amount).toBe(5_000n);
+  });
+
+  // The rule the flag exists for: a slashed identity cannot be rehabilitated,
+  // so no later event may clear it.
+  test('slashed is sticky', async () => {
+    const store = await create();
+    await store.upsertAgentBond(bond({ slashed: true, amount: 0n, blockNumber: 200n }));
+    await store.upsertAgentBond(bond({ slashed: false, amount: 9_000n, blockNumber: 300n }));
+    expect((await store.getAgentBond(7n))!.slashed).toBe(true);
+  });
+
+  test('a pending withdrawal records its unlock time', async () => {
+    const store = await create();
+    await store.upsertAgentBond(bond({ unlockAt: 1_700_000_000n, blockNumber: 200n }));
+    expect((await store.getAgentBond(7n))!.unlockAt).toBe(1_700_000_000n);
+  });
+
+  test('survives a uint256 bond', async () => {
+    const store = await create();
+    const huge = (1n << 256n) - 1n;
+    await store.upsertAgentBond(bond({ amount: huge }));
+    expect((await store.getAgentBond(7n))!.amount).toBe(huge);
+  });
+
+  // These rows describe events on a chain. If that chain is replaced, the bond
+  // they describe never happened — unlike a health probe, which stays true.
+  test('a rollback drops bonds from the replaced blocks', async () => {
+    const store = await create();
+    await store.upsertAgentBond(bond({ agentId: 7n, blockNumber: 100n }));
+    await store.upsertAgentBond(bond({ agentId: 8n, blockNumber: 500n }));
+
+    await store.rollbackFrom(400n);
+
+    expect(await store.getAgentBond(8n)).toBeNull();
+    expect(await store.getAgentBond(7n)).not.toBeNull();
   });
 
   // -------------------------------------------------------------------------

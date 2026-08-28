@@ -117,6 +117,26 @@ export interface AgentHealthRow {
   readonly lastError: string | null;
 }
 
+/**
+ * An agent's bond, as folded from `AgentReputationV1` events.
+ *
+ * Unlike the health row above, this IS verifiable: the events are on chain and
+ * anyone can replay them to the same numbers. It is stored rather than read
+ * live so the directory can show a bond beside a record without a contract
+ * call per row.
+ */
+export interface AgentBondRow {
+  readonly agentId: bigint;
+  /** The live bond, in wei. Zero once withdrawn or slashed. */
+  readonly amount: bigint;
+  /** Unix seconds a pending withdrawal unlocks; zero when none is pending. */
+  readonly unlockAt: bigint;
+  /** Permanent once true: a slashed identity cannot be rehabilitated. */
+  readonly slashed: boolean;
+  readonly blockNumber: bigint;
+  readonly blockHash: string;
+}
+
 export interface AgentListingFilter {
   readonly activeOnly?: boolean;
   readonly kind?: number;
@@ -169,6 +189,13 @@ export interface Store {
     result: { ok: boolean; latencyMs: number | null; error: string | null; checkedAt: bigint },
   ): Promise<void>;
   getAgentHealth(agentId: bigint): Promise<AgentHealthRow | null>;
+  /**
+   * Records a bond event. Later blocks win, and `slashed` is sticky — a
+   * slashed agent that somehow saw an earlier event replayed must not come
+   * back clean.
+   */
+  upsertAgentBond(bond: AgentBondRow): Promise<void>;
+  getAgentBond(agentId: bigint): Promise<AgentBondRow | null>;
   listAgentListings(
     limit: number,
     offset: number,

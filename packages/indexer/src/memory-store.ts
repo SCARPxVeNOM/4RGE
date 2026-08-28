@@ -10,6 +10,7 @@
 
 import { statusSucceeded, ZERO_BYTES32, type Hex } from '@0gflow/core';
 import type {
+  AgentBondRow,
   AgentHealthRow,
   AgentListingFilter,
   AgentListingRow,
@@ -31,6 +32,7 @@ export class MemoryStore implements Store {
   private readonly flows = new Map<string, FlowRow>();
   private readonly listings = new Map<string, AgentListingRow>();
   private readonly health = new Map<string, AgentHealthRow>();
+  private readonly bonds = new Map<string, AgentBondRow>();
 
   async getCursor() {
     return this.cursor;
@@ -60,6 +62,9 @@ export class MemoryStore implements Store {
     }
     for (const [k, listing] of this.listings) {
       if (listing.blockNumber >= blockNumber) this.listings.delete(k);
+    }
+    for (const [k, bond] of this.bonds) {
+      if (bond.blockNumber >= blockNumber) this.bonds.delete(k);
     }
     for (const [k] of this.blocks) {
       if (BigInt(k) >= blockNumber) this.blocks.delete(k);
@@ -120,6 +125,22 @@ export class MemoryStore implements Store {
 
   async getAgentHealth(agentId: bigint) {
     return this.health.get(agentId.toString()) ?? null;
+  }
+
+  async upsertAgentBond(bond: AgentBondRow) {
+    const previous = this.bonds.get(bond.agentId.toString());
+    // Later blocks win. Within a block the ingester feeds events in log order,
+    // so the last one seen is the latest state.
+    if (previous !== undefined && previous.blockNumber > bond.blockNumber) return;
+    this.bonds.set(bond.agentId.toString(), {
+      ...bond,
+      // Sticky: a slashed identity stays slashed whatever arrives next.
+      slashed: bond.slashed || (previous?.slashed ?? false),
+    });
+  }
+
+  async getAgentBond(agentId: bigint) {
+    return this.bonds.get(agentId.toString()) ?? null;
   }
 
   async listAgentListings(limit: number, offset: number, filter?: AgentListingFilter) {
