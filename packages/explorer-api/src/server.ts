@@ -22,6 +22,7 @@ import {
 } from '@0gflow/core';
 import type { Store } from '@0gflow/indexer';
 import type { Network } from '@0gflow/config';
+import { preflight, PreflightError } from './preflight.js';
 
 const HEX32 = /^0x[0-9a-fA-F]{64}$/;
 
@@ -30,7 +31,25 @@ export interface ServerOptions {
   readonly network: Network;
   /** Where the verifier tells people to fetch traces from. */
   readonly traceBaseUrl?: string;
+  /**
+   * Pays for schema storage during a browser publish. Absent disables only
+   * that step; see `preflight.ts` for what it does and does not buy.
+   */
+  readonly storageKey?: string | undefined;
 }
+
+/**
+ * How often one caller may ask this service to probe an agent and pay for a
+ * storage write.
+ *
+ * Everything else here is a read of an index. This one endpoint makes outbound
+ * requests and spends a balance, so it is the one that needs a limit at all.
+ * In-memory and per-process: this is a single service, and a limiter that
+ * needed its own datastore would be a worse trade than one that resets on
+ * deploy.
+ */
+const PREFLIGHT_LIMIT = 5;
+const PREFLIGHT_WINDOW_MS = 10 * 60_000;
 
 const STATUS_NAME: Record<number, string> = {
   [StepStatus.Ok]: 'ok',
@@ -51,19 +70,45 @@ function serialise(value: unknown): unknown {
 export function createServer(options: ServerOptions): FastifyInstance {
   const { store, network } = options;
   const app = Fastify({ logger: false });
+  const preflightCalls = new Map<string, number[]>();
 
   // Public and read-only: no wallet, no auth, no cookies, so CORS is
   // unrestricted by design rather than by oversight.
-  app.addHook('onSend', async (_req, reply) => {
+  app.addHook('onSend', async (request, reply) => {
     void reply.header('access-control-allow-origin', '*');
-    void reply.header('cache-control', 'public, max-age=5');
+    // Preflight is neither public nor cacheable: it is per-caller and it
+    // spends. A shared cache in front of it would serve one publisher's
+    // conformance verdict to the next, which is worse than slow.
+    void reply.header(
+      'cache-control',
+      request.url.startsWith('/api/publish/') ? 'no-store' : 'public, max-age=5',
+    );
+  });
+
+  // The publish page POSTs JSON from another origin in development, which the
+  // browser preflights. Answering it here keeps that from looking like the
+  // endpoint being down.
+  app.options('/api/publish/preflight', async (_req, reply) => {
+    void reply.header('access-control-allow-methods', 'POST, OPTIONS');
+    void reply.header('access-control-allow-headers', 'content-type');
+    return reply.code(204).send();
   });
 
   app.get('/api/health', async () => {
     const stats = await store.stats();
     return serialise({
       ok: true,
-      network: { name: network.name, chainId: network.chainId, explorer: network.explorerUrl },
+      network: {
+        name: network.name,
+        chainId: network.chainId,
+        explorer: network.explorerUrl,
+        // Served so the publish page can tell a wallet which chain to add. It
+        // is the network's own public RPC, deliberately not this service:
+        // a wallet routing a stranger's transactions through a server named by
+        // a web page is the wrong shape entirely.
+        rpcUrl: network.rpcUrl,
+        nativeToken: network.nativeToken,
+      },
       contracts: {
         executionReceipts: network.contracts.executionReceipts,
         executionReceiptsV2: network.contracts.executionReceiptsV2,
@@ -75,6 +120,45 @@ export function createServer(options: ServerOptions): FastifyInstance {
       },
       indexed: stats,
     });
+  });
+
+  /**
+   * The one write-adjacent endpoint: everything needed to publish an agent
+   * that a browser cannot do for itself.
+   *
+   * It returns calldata-relevant facts, not calldata. The two transactions are
+   * built and signed in the page by the publisher's own wallet, so this service
+   * cannot list an agent, cannot redirect payment, and never holds a key
+   * belonging to anyone but itself.
+   */
+  app.post('/api/publish/preflight', async (request, reply) => {
+    const body = request.body as { endpoint?: unknown } | undefined;
+    const endpoint = body?.endpoint;
+    if (typeof endpoint !== 'string' || endpoint === '') {
+      return reply.code(400).send({ error: 'endpoint is required' });
+    }
+
+    const caller = request.ip;
+    const now = Date.now();
+    const seen = (preflightCalls.get(caller) ?? []).filter((t) => now - t < PREFLIGHT_WINDOW_MS);
+    if (seen.length >= PREFLIGHT_LIMIT) {
+      return reply.code(429).send({
+        error:
+          `this endpoint probes other people's servers and pays for storage, so it is rate limited to ` +
+          `${PREFLIGHT_LIMIT} publishes per ${PREFLIGHT_WINDOW_MS / 60_000} minutes. ` +
+          `The CLI has no such limit: ZG_PRIVATE_KEY=0x… npx @0gflow/publish`,
+      });
+    }
+    seen.push(now);
+    preflightCalls.set(caller, seen);
+
+    try {
+      const result = await preflight(endpoint, { network, storageKey: options.storageKey });
+      return serialise(result);
+    } catch (error) {
+      const status = error instanceof PreflightError ? error.status : 502;
+      return reply.code(status).send({ error: (error as Error).message });
+    }
   });
 
   app.get('/api/runs', async (request) => {

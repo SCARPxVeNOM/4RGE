@@ -219,6 +219,14 @@ export function AgentsPage() {
                 that mishandles the contract is refused, because a flow that hires one produces
                 receipts nobody can verify.
               </p>
+              <p style={{ margin: '0 0 16px' }}>
+                <a className="pill primary" href="#/publish">
+                  Publish from your wallet
+                </a>
+              </p>
+              <p className="dim" style={{ margin: '0 0 10px' }}>
+                Or from a terminal, with a key you already hold:
+              </p>
               <Command>{`ZG_PRIVATE_KEY=0x… npx @0gflow/publish --endpoint https://your-agent.example --signer 0xYourSigningKey --price 1000000000000000`}</Command>
             </div>
           </Section>

@@ -16,6 +16,7 @@ import { AgentPage } from './pages/AgentPage.js';
 import { AgentsPage } from './pages/AgentsPage.js';
 import { FlowPage } from './pages/FlowPage.js';
 import { RunPage } from './pages/RunPage.js';
+import { PublishPage } from './pages/PublishPage.js';
 import { RunsPage } from './pages/RunsPage.js';
 
 /** The hash path as segments: `#/agent/12` → `['agent', '12']`. */
@@ -56,6 +57,9 @@ function TopBar({ route, health }: { route: string[]; health: Health | null }) {
         <a href="#/agents" aria-current={section === 'agents' || section === 'agent' ? 'page' : undefined}>
           Agents
         </a>
+        <a href="#/publish" aria-current={section === 'publish' ? 'page' : undefined}>
+          Publish
+        </a>
       </nav>
 
       <span className="spacer" />
@@ -78,6 +82,7 @@ export default function App() {
 
   let page = <RunsPage />;
   if (route[0] === 'agents') page = <AgentsPage />;
+  else if (route[0] === 'publish') page = <PublishPage />;
   else if (route[0] === 'agent' && route[1] !== undefined) page = <AgentPage agentId={route[1]} />;
   else if (route[0] === 'run' && route[1] !== undefined) page = <RunPage runId={route[1]} />;
   else if (route[0] === 'flow' && route[1] !== undefined) page = <FlowPage flowId={route[1]} />;

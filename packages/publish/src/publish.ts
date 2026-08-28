@@ -30,13 +30,21 @@ import {
   createWalletClient,
   decodeEventLog,
   defineChain,
-  encodeFunctionData,
   http,
   type Account,
   type Chain,
   type PublicClient,
   type WalletClient,
 } from 'viem';
+// The calldata is built by the same encoders the browser flow uses. Two
+// encoders would be two encodings, and the divergence would show up as a
+// listing that differs depending on which front door published it.
+import {
+  encodeRegisterAdapter,
+  encodeRegisterIdentity,
+  listingMetadataURI,
+  registrationTokenURI,
+} from './calldata.js';
 import { privateKeyToAccount, nonceManager } from 'viem/accounts';
 import { runConformance, createHttpProbe, type ConformanceReport } from '@0gflow/conform';
 import { ZgStorageTraceStore } from '@0gflow/storage';
@@ -226,18 +234,17 @@ export async function publishAgent(options: PublishOptions): Promise<PublishResu
     log(`using existing identity ${agentId}`);
   } else {
     log('minting an ERC-8004 identity…');
-    const registration = JSON.stringify({
+    const tokenURI = registrationTokenURI({
       name: options.name,
       description: options.description,
-      endpoints: [{ name: 'invoke', endpoint: options.endpoint, protocol: '0gflow/1' }],
+      endpoint: options.endpoint,
     });
-    const tokenURI = `data:application/json;base64,${Buffer.from(registration).toString('base64')}`;
 
     mintTx = await wallet.sendTransaction({
       account,
       chain,
       to: identityAddress,
-      data: encodeFunctionData({ abi: IDENTITY_ABI, functionName: 'register', args: [tokenURI] }),
+      data: encodeRegisterIdentity(tokenURI),
       gasPrice: GAS_PRICE,
     });
     const minted = await waitForReceipt(publicClient, mintTx, 'minting');
@@ -284,29 +291,22 @@ export async function publishAgent(options: PublishOptions): Promise<PublishResu
     account,
     chain,
     to: registryAddress,
-    data: encodeFunctionData({
-      abi: REGISTRY_ABI,
-      functionName: 'registerAdapter',
-      args: [
-        {
-          agentId,
-          kind: 0,
-          endpoint: options.endpoint,
-          schemaRoot: schemaRoot as `0x${string}`,
-          version,
-          active: true,
-          payTo: options.payTo ?? owner,
-          signer: options.signer,
-          pricePerCall: options.pricePerCall ?? 0n,
-          metadataURI: `data:application/json;base64,${Buffer.from(
-            JSON.stringify({
-              name: options.name,
-              description: options.description,
-              conformance: { conformant: conformance.conformant, checks: conformance.results.length },
-            }),
-          ).toString('base64')}`,
-        },
-      ],
+    data: encodeRegisterAdapter({
+      agentId,
+      kind: 0,
+      endpoint: options.endpoint,
+      schemaRoot: schemaRoot as `0x${string}`,
+      version,
+      active: true,
+      payTo: options.payTo ?? owner,
+      signer: options.signer,
+      pricePerCall: options.pricePerCall ?? 0n,
+      metadataURI: listingMetadataURI({
+        name: options.name,
+        description: options.description,
+        conformant: conformance.conformant,
+        checks: conformance.results.length,
+      }),
     }),
     gasPrice: GAS_PRICE,
   });

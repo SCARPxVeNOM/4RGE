@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@0gflow/core": "workspace:*",
+    "@0gflow/publish": "workspace:*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

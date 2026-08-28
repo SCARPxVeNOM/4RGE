@@ -12,6 +12,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./calldata": {
+      "types": "./dist/calldata.d.ts",
+      "default": "./dist/calldata.js"
     }
   },
   "files": [

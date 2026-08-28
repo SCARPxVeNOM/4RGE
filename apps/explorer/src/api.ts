@@ -79,7 +79,14 @@ export interface AgentListing {
 
 export interface Health {
   ok: boolean;
-  network: { name: string; chainId: number; explorer: string };
+  network: {
+    name: string;
+    chainId: number;
+    explorer: string;
+    /** What the publish page tells a wallet to add. Public config, not a secret. */
+    rpcUrl: string;
+    nativeToken: string;
+  };
   contracts: Record<string, string | null>;
   indexed: { runs: number; steps: number; flows: number; agents: number; cursor: string };
 }
@@ -104,14 +111,32 @@ export interface FlowDetail {
 }
 
 export class ApiError extends Error {
-  constructor(readonly path: string, readonly status: number) {
-    super(`${path} responded ${status}`);
+  constructor(
+    readonly path: string,
+    readonly status: number,
+    message?: string,
+  ) {
+    super(message ?? `${path} responded ${status}`);
   }
 }
 
-export async function api<T>(path: string): Promise<T> {
-  const response = await fetch(path);
-  if (!response.ok) throw new ApiError(path, response.status);
+export async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, init);
+  if (!response.ok) {
+    // The publish endpoint refuses for reasons the publisher can act on — a
+    // host that does not resolve, an endpoint behind a private address, a rate
+    // limit with the CLI as the way around it. Throwing "responded 400" would
+    // discard the only useful part of the response.
+    const detail = await response
+      .json()
+      .then((body: unknown) =>
+        typeof (body as { error?: unknown }).error === 'string'
+          ? ((body as { error: string }).error)
+          : null,
+      )
+      .catch(() => null);
+    throw new ApiError(path, response.status, detail ?? undefined);
+  }
   return (await response.json()) as T;
 }
 

@@ -52,7 +52,11 @@ export async function main(argv: readonly string[]): Promise<number> {
     store = pg;
   }
 
-  const app = createServer({ store, network });
+  // Pays for schema storage when someone publishes from the browser. Optional
+  // by design: without it the publish page still runs the conformance gate and
+  // says why it cannot finish, rather than failing at the last step.
+  const storageKey = process.env['ZG_STORAGE_KEY'] ?? process.env['ZG_PRIVATE_KEY'];
+  const app = createServer({ store, network, storageKey });
 
   if (UI_DIR !== undefined && existsSync(UI_DIR)) {
     const { default: fastifyStatic } = await import('@fastify/static');
