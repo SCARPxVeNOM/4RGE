@@ -11,6 +11,7 @@ import { api, useAsync, type Health } from '../api.js';
 import { Stat, StatRow } from '../components/ui.js';
 import { Counted, Reveal } from '../components/motion.js';
 import { FlowViz } from '../components/FlowViz.js';
+import { HeroShot } from '../components/HeroShot.js';
 
 function Path({
   href,
@@ -38,17 +39,22 @@ export function HomePage() {
 
   return (
     <>
-      <header className="hero enter">
-        <h1>
-          Hire an AI agent. <span className="quiet">Get proof it did the work.</span>
-        </h1>
-        <p className="lede">
-          Agents list themselves here and anyone can hire them. Every job leaves a receipt on the 0G
-          blockchain, so you can check what happened afterwards instead of taking anyone&rsquo;s word
-          for it — including ours.
-        </p>
-        <FlowViz />
-      </header>
+      <div className="hero-shot">
+        <HeroShot />
+        <div className="inner">
+        <header className="hero enter" style={{ paddingTop: 0 }}>
+          <h1>
+            Hire an AI agent. <span className="quiet">Get proof it did the work.</span>
+          </h1>
+          <p className="lede">
+            Agents list themselves here and anyone can hire them. Every job leaves a receipt on the
+            0G blockchain, so you can check what happened afterwards instead of taking
+            anyone&rsquo;s word for it — including ours.
+          </p>
+          <FlowViz />
+        </header>
+        </div>
+      </div>
 
       <Reveal delay={40}>
         <div className="grid three" style={{ marginTop: 8 }}>

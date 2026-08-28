@@ -116,6 +116,7 @@ code { font-size: 0.92em; color: var(--muted); }
 .shell {
   position: relative;
   z-index: 1;
+  overflow-x: clip;
   min-height: 100%;
   display: flex;
   flex-direction: column;
@@ -938,4 +939,127 @@ pre.cmd .flag { color: var(--fg); }
      asked for less motion would be a worse outcome than the motion. */
   [data-reveal] { opacity: 1; transform: none; transition: none; }
   .card.path:hover { transform: none; }
+}
+
+/* --------------------------------------------------------------------------
+   The hero photograph
+
+   Full-bleed behind the landing headline only. It is a background, so it is
+   treated like one: scrimmed enough that the words never fight it, and never
+   load-blocking those words.
+
+   The scrim is much lighter than it looks like it should be. The source is a
+   dim room photographed at night — already almost black — so the tint that
+   would be right for a bright image erases this one entirely. That was the
+   first version, and it shipped a black rectangle.
+
+   The image is green and the brand is purple, which is a real tension. It is
+   resolved by letting the photograph own the hero and keeping the purple light
+   behind it, rather than mixing the two into mud.
+   -------------------------------------------------------------------------- */
+
+.hero-shot {
+  position: relative;
+  /* Full width of the window, from inside a centred, padded column. The
+     negative margin is half the difference between the column and the
+     viewport. `.shell` clips the overflow — see the note there. */
+  width: 100vw;
+  margin-left: calc(50% - 50vw);
+  /* Pulls up under the sticky topbar so the picture starts at the very top. */
+  margin-top: -110px;
+  padding: 132px 0 40px;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+/* Full-bleed background, column-aligned content: the inner wrapper puts the
+   text back on the same grid as every other page. */
+.hero-shot .inner {
+  position: relative;
+  z-index: 2;
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 0 28px;
+}
+
+.hero-shot .shot {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+/*
+ * The placeholder and the real image are two pseudo-elements, not an element
+ * with a filter and a pseudo-element on top. `filter` applies to an element's
+ * whole rendered subtree, pseudo-elements included, so blurring the parent to
+ * smooth the 24px placeholder also blurred the sharp image that replaced it —
+ * which looked exactly like an image that had failed to load, and cost an hour.
+ */
+.hero-shot .shot::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  /* A 92-byte blurred copy, inlined, so there is something behind the words on
+     the very first frame instead of a black rectangle that fills in later. */
+  background-image: url('data:image/webp;base64,UklGRlQAAABXRUJQVlA4IEgAAACwAwCdASoYAA4APu1iqk2ppaQiMAgBMB2JZQDMHCHe3+3WCE7wQAD+8qBl2BA0/3WFts3ZbJwtHHIRIB/excycD6srg3yAAAA=');
+  background-size: cover;
+  background-position: 62% 46%;
+  filter: blur(20px);
+  transform: scale(1.08);
+}
+
+.hero-shot .shot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: image-set(url('./assets/hero.webp') type('image/webp'), url('./assets/hero.jpg') type('image/jpeg'));
+  background-size: cover;
+  background-position: 62% 46%;
+  opacity: 0;
+  transition: opacity 0.8s ease;
+  /* A very slow push in. 60s across 4% — perceptible only if you sit and look
+     for it, which is the correct amount for something behind text. */
+  animation: shot-push 60s ease-in-out infinite alternate;
+}
+.hero-shot .shot.ready::after { opacity: 1; }
+@keyframes shot-push { from { transform: scale(1); } to { transform: scale(1.05); } }
+
+/* Three layers, each doing one job: darken the left third so the headline has
+   a floor to sit on; dissolve the bottom into the page so the photograph ends
+   on a fade rather than a line; and lift the very top where the sticky topbar
+   overlaps it. */
+.hero-shot .scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  /*
+   * Every stop fades to `rgb(8 9 11 / 0)` rather than to `transparent`.
+   * `transparent` is transparent *black*, so a gradient running from the page
+   * colour to it passes through colours that are not on the page, and three of
+   * these stacked turned the photograph into a grey smear. Naming the same
+   * colour at zero alpha keeps the fade honest.
+   */
+  background:
+    linear-gradient(100deg, rgb(8 9 11 / 0.96) 0%, rgb(8 9 11 / 0.80) 22%, rgb(8 9 11 / 0.30) 46%, rgb(8 9 11 / 0) 66%),
+    linear-gradient(to top, var(--bg) 0%, rgb(8 9 11 / 0.30) 14%, rgb(8 9 11 / 0) 40%),
+    linear-gradient(to bottom, rgb(8 9 11 / 0.70) 0%, rgb(8 9 11 / 0) 14%);
+}
+
+@media (max-width: 900px) {
+  /* On a narrow screen the text covers most of the frame, so the scrim has to
+     be heavier or the headline sits on top of monitors. */
+  .hero-shot { padding-top: 124px; }
+  .hero-shot .shot,
+  .hero-shot .shot::after { background-position: 70% 46%; }
+  .hero-shot .scrim {
+    background:
+      linear-gradient(100deg, rgb(8 9 11 / 0.96) 0%, rgb(8 9 11 / 0.88) 40%, rgb(8 9 11 / 0.55) 100%),
+      linear-gradient(to top, var(--bg) 0%, rgb(8 9 11 / 0.45) 22%, rgb(8 9 11 / 0) 58%),
+      linear-gradient(to bottom, rgb(8 9 11 / 0.74) 0%, rgb(8 9 11 / 0) 16%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-shot .shot::after { animation: none; transition: none; }
 }
