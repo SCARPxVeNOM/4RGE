@@ -140,6 +140,96 @@ describe('unattested is never ok', () => {
   });
 });
 
+describe('an unproven identity is never ok', () => {
+  // The same rule as the attestation one, applied to a different question.
+  // `requireAttestation` asks where the work ran; this asks who did it. In a
+  // market that decides who gets paid and whose record the step lands on, so
+  // an unproven claim cannot be recorded as a success.
+
+  test('a required signature that is valid yields Ok', () => {
+    expect(
+      decideStepStatus({
+        requireAttestation: false,
+        attestationPresent: false,
+        requireSignedOutput: true,
+        outputSignatureValid: true,
+      }),
+    ).toBe(StepStatus.Ok);
+  });
+
+  test('a required signature that is invalid yields Unattested', () => {
+    expect(
+      decideStepStatus({
+        requireAttestation: false,
+        attestationPresent: false,
+        requireSignedOutput: true,
+        outputSignatureValid: false,
+      }),
+    ).toBe(StepStatus.Unattested);
+  });
+
+  // "I did not check" is not "it passed". Omitting the field is what a caller
+  // that never looked produces, and it must fail closed exactly as an omitted
+  // bindingLevel does.
+  test('a required signature nobody evaluated yields Unattested', () => {
+    expect(
+      decideStepStatus({
+        requireAttestation: false,
+        attestationPresent: false,
+        requireSignedOutput: true,
+      }),
+    ).toBe(StepStatus.Unattested);
+  });
+
+  test('an unproven identity nobody required yields Ok', () => {
+    expect(
+      decideStepStatus({
+        requireAttestation: false,
+        attestationPresent: false,
+        outputSignatureValid: false,
+      }),
+    ).toBe(StepStatus.Ok);
+  });
+
+  // Every flow written before signatures existed omits the field entirely.
+  test('the decision is unchanged when the field is absent', () => {
+    expect(decideStepStatus({ requireAttestation: false, attestationPresent: false })).toBe(
+      StepStatus.Ok,
+    );
+  });
+
+  test('no combination of inputs promotes an unproven identity to Ok', () => {
+    for (const error of [undefined, 'boom']) {
+      for (const skipped of [undefined, 'policy']) {
+        for (const valid of [undefined, false]) {
+          const status = decideStepStatus({
+            requireAttestation: false,
+            attestationPresent: true,
+            requireSignedOutput: true,
+            ...(valid === undefined ? {} : { outputSignatureValid: valid }),
+            ...(error === undefined ? {} : { error }),
+            ...(skipped === undefined ? {} : { skipped }),
+          });
+          expect(status).not.toBe(StepStatus.Ok);
+        }
+      }
+    }
+  });
+
+  test('a valid signature does not excuse a missing required attestation', () => {
+    // The two requirements are independent; satisfying one must not satisfy
+    // the other.
+    expect(
+      decideStepStatus({
+        requireAttestation: true,
+        attestationPresent: false,
+        requireSignedOutput: true,
+        outputSignatureValid: true,
+      }),
+    ).toBe(StepStatus.Unattested);
+  });
+});
+
 describe('a run reports success only when sealed on chain', () => {
   const stepA: Receipt = { ...receipt, stepIndex: 0 };
   const stepB: Receipt = { ...receipt, stepIndex: 1, inputHash: '0x' + '66'.repeat(32) };

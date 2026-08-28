@@ -47,7 +47,7 @@ importers:
         version: 6.4.3(@types/node@22.20.1)(tsx@4.23.12)
 
   packages/adapter-sdk:
-    devDependencies:
+    dependencies:
       '@0gflow/core':
         specifier: workspace:*
         version: link:../core
@@ -77,6 +77,10 @@ importers:
       viem:
         specifier: ^2.21.0
         version: 2.55.19(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)
+    devDependencies:
+      '@0gflow/adapter-sdk':
+        specifier: workspace:*
+        version: link:../adapter-sdk
 
   packages/explorer-api:
     dependencies:
@@ -183,9 +187,15 @@ importers:
 
   tools/reference-agents:
     dependencies:
+      '@0gflow/adapter-sdk':
+        specifier: workspace:*
+        version: link:../../packages/adapter-sdk
       '@0gflow/core':
         specifier: workspace:*
         version: link:../../packages/core
+      viem:
+        specifier: ^2.21.0
+        version: 2.55.19(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)
     devDependencies:
       tsx:
         specifier: ^4.19.2

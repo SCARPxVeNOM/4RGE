@@ -28,6 +28,7 @@ const USAGE = `
 Options
   --rpc <url>          JSON-RPC endpoint          (default: Galileo)
   --contract <addr>    ExecutionReceipts address  (default: from config)
+  --adapters <addr>    AgentAdapterRegistryV2, for checking agent signatures
   --registry <addr>    Agent identity registry    (default: from config)
   --from-block <n>     Log scan start             (default: deployment block)
   --indexer <url>      0G Storage indexer         (default: from config)
@@ -65,6 +66,7 @@ export function parseArgs(argv: readonly string[]): Args {
   const flags: Record<string, keyof Args> = {
     '--rpc': 'rpc',
     '--contract': 'contract',
+    '--adapters': 'adapters',
     '--registry': 'registry',
     '--from-block': 'fromBlock',
     '--indexer': 'indexer',
@@ -222,6 +224,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   const contract = (args.contract ?? requireAddress(network, 'executionReceipts')) as Hex;
   const registry = (args.registry ?? network.contracts.identityRegistry) as Hex | null;
   const fromBlock = BigInt(args.fromBlock ?? network.deploymentBlock ?? 0);
+  const adapters = (args.adapters ?? network.contracts.agentAdapterRegistryV2 ?? null) as Hex | null;
 
   let spec: SpecForLinkage | null = null;
   if (args.spec !== undefined) {
@@ -251,6 +254,11 @@ export async function main(argv: readonly string[]): Promise<number> {
     traces: buildTraceSource(network, args),
     identityRegistry: registry,
     spec,
+    // All three or none: a digest recomputed against the wrong chain or the
+    // wrong receipts address fails in a way indistinguishable from forgery.
+    ...(adapters === null
+      ? {}
+      : { agentIdentity: { registry: adapters, receipts: contract, chainId: network.chainId } }),
   };
 
   if (args.tamper) return runTamperDemo(network, args, base);

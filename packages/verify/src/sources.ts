@@ -35,6 +35,19 @@ export interface ChainSource {
    * compiles; a source that omits it simply cannot establish attestations.
    */
   acknowledgedSigner?(provider: Hex): Promise<AcknowledgedSigner | null>;
+  /**
+   * The signing key an agent published for itself in
+   * `AgentAdapterRegistryV2`.
+   *
+   * The trust anchor for identity, as `acknowledgedSigner` is for
+   * attestation. null when the agent is not listed or the read failed — an
+   * output signature then proves nothing, because there is no published key
+   * to check it against.
+   *
+   * Optional for the same reason as above: a source written before agent
+   * signatures existed still compiles, and simply cannot establish identity.
+   */
+  agentSigner?(registry: Hex, agentId: bigint): Promise<Hex | null>;
 }
 
 export type TraceOrigin = 'storage' | 'local';
@@ -165,6 +178,28 @@ export class JsonRpcChainSource implements ChainSource {
 
   getRunSealedLogs(runId: Hex): Promise<RawLog[]> {
     return this.getLogs([RUN_SEALED_TOPIC, runId]);
+  }
+
+  /**
+   * `signerOf(uint256)` on the adapter registry.
+   *
+   * Note the difference from `ownerOf`, which reverts for a nonexistent
+   * token: this returns the zero address for an unlisted agent, because the
+   * escrow needs a comparable value rather than a revert. Both map to null —
+   * "no published key" — which never verifies to true.
+   */
+  async agentSigner(registry: Hex, agentId: bigint): Promise<Hex | null> {
+    // signerOf(uint256), per `cast sig`.
+    const selector = '0x5161fdf5';
+    const data = `${selector}${agentId.toString(16).padStart(64, '0')}`;
+    try {
+      const result = await this.call<string>('eth_call', [{ to: registry, data }, 'latest']);
+      if (result === '0x' || result.length < 66) return null;
+      const address = `0x${result.slice(-40)}`.toLowerCase() as Hex;
+      return address === `0x${'00'.repeat(20)}` ? null : address;
+    } catch {
+      return null;
+    }
   }
 
   async ownerOf(registry: Hex, agentId: bigint): Promise<Hex | null> {

@@ -26,6 +26,14 @@ export interface InvokeRequest {
   readonly input: JsonValue;
   /** Unix seconds after which the agent should stop trying. */
   readonly deadline: number;
+  /**
+   * Where this step will be anchored, so the agent can sign an output bound
+   * to one specific chain and deployment. Omitted when no signature is asked
+   * for; never defaulted, because a signature over chain 0 would look
+   * well-formed and verify nowhere.
+   */
+  readonly chainId?: number;
+  readonly receipts?: Hex;
 }
 
 export interface AttemptRecord {
@@ -55,6 +63,13 @@ export interface InvokeResult {
    * response signature against.
    */
   readonly attestationProvider: Hex | null;
+  /**
+   * The agent's signature over its own output, when it produced one.
+   *
+   * This is what turns the receipt's `agentId` from a claim into a fact, and
+   * what `FlowEscrowV2` requires before paying.
+   */
+  readonly outputSignature: Hex | null;
   readonly meta: JsonValue | null;
   readonly attempts: AttemptRecord[];
 }
@@ -173,9 +188,23 @@ function parseSuccess(body: string, attempts: AttemptRecord[]): InvokeResult {
     attestation: typeof attestation === 'string' && attestation.length > 0 ? attestation : null,
     attestationBinding: parseBinding(envelope['attestationBinding']),
     attestationProvider: parseProvider(envelope['attestationProvider']),
+    outputSignature: parseSignature(envelope['outputSignature']),
     meta: (envelope['meta'] ?? null) as JsonValue | null,
     attempts,
   };
+}
+
+/**
+ * A 65-byte signature, or null.
+ *
+ * A malformed one is dropped rather than passed along: the executor would
+ * only fail to recover an address from it, and reporting "the agent did not
+ * sign" is the same outcome by a clearer route.
+ */
+function parseSignature(value: unknown): Hex | null {
+  return typeof value === 'string' && /^0x[0-9a-fA-F]{130}$/.test(value)
+    ? (value.toLowerCase() as Hex)
+    : null;
 }
 
 /** A 0G provider address, or null. Never a partially-valid one. */

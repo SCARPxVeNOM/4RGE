@@ -58,6 +58,35 @@ function attestationLabel(step: StepCheck): string {
   }
 }
 
+/**
+ * What the identity line says.
+ *
+ * Kept separate from the `id` mark, which reports only that the agent's token
+ * exists in the identity registry. That an identity exists says nothing about
+ * whether its holder produced this output — which is the whole gap agent
+ * signatures close, and printing them as one thing would hide it.
+ *
+ * Nothing is printed when a step carries no signature: most runs predate
+ * them, and a `?` on every line of every historical run would be noise rather
+ * than information.
+ */
+function identityLabel(step: StepCheck): string | null {
+  switch (step.outputIdentity) {
+    case 'absent':
+      return null;
+    case 'valid':
+      return `signed ${TICK} by agent ${step.agentId}`;
+    case 'unconfirmed':
+      return `signed ${CROSS} recovers to ${short(step.recoveredAgentSigner ?? '0x')}, not the registered key`;
+    case 'no-registered-key':
+      return `signed ? agent ${step.agentId} has published no key`;
+    case 'unchecked':
+      return 'signed ? no adapter registry configured';
+    default:
+      return null;
+  }
+}
+
 function mark(value: boolean | null): string {
   if (value === null) return '?';
   return value ? TICK : CROSS;
@@ -88,6 +117,8 @@ export function renderReport(
       `hashes ${mark(step.hashesMatch)}`,
       attestationLabel(step),
     ];
+    const identity = identityLabel(step);
+    if (identity !== null) parts.push(identity);
     lines.push(`  [${step.stepIndex}] ${name} ${short(step.receiptHash)}   ${parts.join('   ')}`);
     // statusSucceeded rather than a local comparison: one definition of
     // success, in outcome.ts, so Unattested can never drift into 'fine'.

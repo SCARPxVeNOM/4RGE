@@ -12,6 +12,7 @@
  */
 
 import type { JsonValue } from '@0gflow/core';
+import { identityFor, type AgentIdentity } from './identity.js';
 
 export interface AgentError {
   readonly code: string;
@@ -29,8 +30,13 @@ export interface AgentResult {
 
 export interface Agent {
   readonly id: string;
-  /** ERC-721 token id of this agent's identity. */
-  readonly agentId: string;
+  /**
+   * This agent's own identity and signing key.
+   *
+   * Distinct per agent. They used to share `agentId: '1'`, which belongs to
+   * somebody else entirely — see identity.ts.
+   */
+  readonly identity: AgentIdentity;
   readonly description: string;
   readonly schema: { input: JsonValue; output: JsonValue };
   invoke(input: Record<string, JsonValue>): AgentResult;
@@ -57,7 +63,7 @@ function selfAttestation(agentId: string, output: JsonValue): string {
 export const AGENTS: Agent[] = [
   {
     id: 'audit',
-    agentId: '1',
+    identity: identityFor('audit', '101'),
     description: 'Reads a repository URL and reports findings.',
     schema: {
       input: { type: 'object', required: ['repo'], properties: { repo: { type: 'string' } } },
@@ -83,7 +89,7 @@ export const AGENTS: Agent[] = [
   },
   {
     id: 'summarize',
-    agentId: '1',
+    identity: identityFor('summarize', '102'),
     description: 'Summarises a report. Returns a self-signed attestation.',
     schema: {
       input: { type: 'object', required: ['text'], properties: { text: { type: 'string' } } },
@@ -92,12 +98,12 @@ export const AGENTS: Agent[] = [
     invoke(input) {
       const text = str(input['text'], 'text');
       const output = { text: `Summary: ${text}.`, words: text.split(/\s+/).length };
-      return { output, attestation: selfAttestation('1', output) };
+      return { output, attestation: selfAttestation('102', output) };
     },
   },
   {
     id: 'score',
-    agentId: '1',
+    identity: identityFor('score', '103'),
     description: 'Grades a report out of 100.',
     schema: {
       input: { type: 'object', required: ['report'], properties: { report: { type: 'string' } } },
@@ -110,7 +116,7 @@ export const AGENTS: Agent[] = [
   },
   {
     id: 'publish',
-    agentId: '1',
+    identity: identityFor('publish', '104'),
     description: 'Publishes a body and grade, returning a URL.',
     schema: {
       input: {
@@ -133,7 +139,7 @@ export const AGENTS: Agent[] = [
 
   {
     id: 'always-fails',
-    agentId: '1',
+    identity: identityFor('always-fails', '105'),
     description: 'Always returns a non-retryable error. Exercises the failure path.',
     schema: { input: { type: 'object' }, output: { type: 'object' } },
     invoke() {
@@ -151,7 +157,7 @@ export const AGENTS: Agent[] = [
   },
   {
     id: 'never-attests',
-    agentId: '1',
+    identity: identityFor('never-attests', '106'),
     description: 'Succeeds but returns no attestation. Exercises the unattested path.',
     schema: {
       input: { type: 'object', required: ['text'], properties: { text: { type: 'string' } } },

@@ -13,8 +13,24 @@
  * - `attestation` must be the provider's bytes, unmodified. The executor
  *   digests exactly what is returned; re-encoding it breaks attestationRef.
  *
- * Zero runtime dependencies: an agent author should not inherit our tree.
+ * One runtime dependency, `@0gflow/core`, which is itself dependency-free. An
+ * agent author inherits one small package rather than a tree. It is needed
+ * because signing an output means hashing it exactly as the executor and the
+ * escrow will, and a second implementation of that hashing is a second chance
+ * to disagree with the chain.
+ *
+ * The SDK never touches a private key. `signOutput` takes a signing callback,
+ * so the key stays wherever the agent already keeps it — see `secp256k1.ts`,
+ * which for the same reason implements recovery and refuses to implement
+ * signing.
  */
+
+import {
+  agentOutputDigest,
+  hashJson,
+  type AgentOutputClaim,
+  type Hex,
+} from '@0gflow/core';
 
 export type JsonValue =
   | null
@@ -32,6 +48,16 @@ export interface InvokeRequest {
   readonly input: Record<string, JsonValue>;
   /** Unix seconds after which the executor stops waiting. */
   readonly deadline: number;
+  /**
+   * The chain and receipts contract this step will be anchored to.
+   *
+   * Present so an agent can sign an output that is bound to one specific
+   * anchoring. Without them the same signature would be valid against any
+   * chain and any deployment, and a testnet signature could be replayed onto
+   * mainnet. Absent when the executor is not requesting a signature.
+   */
+  readonly chainId?: number;
+  readonly receipts?: string;
 }
 
 export interface AgentSchema {
@@ -132,6 +158,16 @@ export interface AgentResponse {
    * and the step cannot rise above `present` however good the signature is.
    */
   readonly attestationProvider?: string | null;
+  /**
+   * The agent's own signature over this output — 65 bytes, 0x hex.
+   *
+   * Proof of authorship rather than of environment. An attestation says where
+   * the work ran; this says which agent is claiming it, and it is what
+   * `FlowEscrowV2.releaseStep` checks before paying. Build it with
+   * `signOutput`; anything else risks digesting different bytes than the
+   * escrow will.
+   */
+  readonly outputSignature?: string | null;
 }
 
 export interface AgentDefinition {
@@ -145,6 +181,62 @@ export interface AgentDefinition {
 export interface HandlerResult {
   readonly status: number;
   readonly body: JsonValue;
+}
+
+/**
+ * Signs an output so the escrow will pay for it, and so the receipt's
+ * `agentId` means something.
+ *
+ * `sign` receives the 32-byte **digest** and must return a 65-byte signature
+ * produced by personal_sign over it:
+ *
+ *   viem    account.signMessage({ message: { raw: digest } })
+ *   ethers  wallet.signMessage(getBytes(digest))
+ *
+ * Both apply the EIP-191 prefix themselves, which is why the digest is handed
+ * over rather than the already-prefixed message hash — passing that would
+ * prefix it twice and produce a signature that verifies nowhere. The SDK does
+ * not sign itself: it never sees a private key.
+ *
+ * The hashes are computed here rather than taken from the caller because they
+ * must match what the executor anchors and what `FlowEscrowV2` recomputes. An
+ * agent that hashed its own output slightly differently would produce a
+ * signature that verifies nowhere, and would find out at payment time.
+ */
+export async function signOutput(
+  params: {
+    readonly request: InvokeRequest;
+    /** ERC-721 token id of this agent, as a decimal string. */
+    readonly agentId: string;
+    readonly output: JsonValue;
+  },
+  sign: (digest: string) => Promise<string> | string,
+): Promise<{ signature: string; digest: string }> {
+  const { request, agentId, output } = params;
+
+  if (request.chainId === undefined || request.receipts === undefined) {
+    // Signing against an unspecified chain would produce a signature valid
+    // everywhere, which is the replay this digest exists to prevent.
+    throw new AgentError(
+      'the executor did not supply chainId and receipts, so this output cannot be bound to an anchoring',
+      'unsignable',
+      false,
+      500,
+    );
+  }
+
+  const claim: AgentOutputClaim = {
+    chainId: request.chainId,
+    receipts: request.receipts as Hex,
+    runId: request.runId as Hex,
+    stepIndex: request.stepIndex,
+    agentId: BigInt(agentId),
+    inputHash: hashJson(request.input),
+    outputHash: hashJson(output),
+  };
+
+  const digest = agentOutputDigest(claim);
+  return { signature: await sign(digest), digest };
 }
 
 const errorBody = (error: AgentError): JsonValue => ({
@@ -220,6 +312,19 @@ export async function handleInvoke(
       }
     }
 
+    const signature = result.outputSignature ?? null;
+    if (signature !== null && !/^0x[0-9a-fA-F]{130}$/.test(signature)) {
+      // A signature the executor cannot parse would be recorded as an
+      // unproven identity, which looks the same as an agent that declined to
+      // sign. Saying so here points at the actual mistake.
+      throw new AgentError(
+        'outputSignature must be 65 bytes of 0x hex; build it with signOutput()',
+        'bad-signature',
+        false,
+        500,
+      );
+    }
+
     return {
       status: 200,
       body: {
@@ -227,6 +332,7 @@ export async function handleInvoke(
         attestation: result.attestation ?? null,
         attestationBinding: binding === null ? null : { ...binding },
         attestationProvider: result.attestationProvider ?? null,
+        outputSignature: signature,
       },
     };
   } catch (error) {
@@ -247,12 +353,20 @@ function parseRequest(body: unknown): InvokeRequest | null {
   const input = envelope['input'];
   if (input === null || typeof input !== 'object' || Array.isArray(input)) return null;
 
+  // chainId and receipts stay undefined when absent rather than defaulting.
+  // A default would let an agent sign against chain 0 and a zero address, and
+  // that signature would verify nowhere while looking perfectly well-formed.
+  const chainId = envelope['chainId'];
+  const receipts = envelope['receipts'];
+
   return {
     runId: String(envelope['runId'] ?? ''),
     flowId: String(envelope['flowId'] ?? ''),
     stepIndex: Number(envelope['stepIndex'] ?? 0),
     input: input as Record<string, JsonValue>,
     deadline: Number(envelope['deadline'] ?? 0),
+    ...(typeof chainId === 'number' ? { chainId } : {}),
+    ...(typeof receipts === 'string' ? { receipts } : {}),
   };
 }
 

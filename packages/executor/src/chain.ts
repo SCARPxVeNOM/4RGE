@@ -52,6 +52,9 @@ const hx = (value: string): `0x${string}` =>
 
 export class ViemChainWriter implements ChainWriter {
   readonly executorAddress: Hex;
+  /** What an agent's signature must commit to for this run's receipts. */
+  readonly chainId: number;
+  readonly receiptsAddress: Hex;
 
   private readonly publicClient: PublicClient;
   private readonly walletClient: WalletClient;
@@ -78,6 +81,8 @@ export class ViemChainWriter implements ChainWriter {
     const key = options.privateKey.startsWith('0x') ? options.privateKey : `0x${options.privateKey}`;
     this.account = privateKeyToAccount(key as `0x${string}`, { nonceManager });
     this.executorAddress = this.account.address as Hex;
+    this.chainId = network.chainId;
+    this.receiptsAddress = this.executionReceipts as Hex;
 
     this.publicClient = createPublicClient({ chain: this.chain, transport: http(network.rpcUrl) });
     this.walletClient = createWalletClient({

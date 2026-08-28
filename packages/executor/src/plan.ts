@@ -47,6 +47,18 @@ export interface StepSpec {
    * that claim.
    */
   readonly requireBinding?: BindingLevel;
+  /**
+   * Whether the agent must prove it produced this output, by signing it with
+   * the key it published in the adapter registry.
+   *
+   * A different question from `requireAttestation`, which asks where the work
+   * ran. This asks who did it. Nothing stops an executor from anchoring a
+   * receipt naming any `agentId` — on Galileo today every reference agent
+   * claims agent 1, which belongs to a stranger — so without this the agent
+   * field is a claim rather than a fact. Set it for any flow whose receipts
+   * feed reputation or payment.
+   */
+  readonly requireSignedOutput?: boolean;
   readonly timeoutMs?: number;
   readonly retries?: { readonly max: number; readonly backoffMs: number };
 }

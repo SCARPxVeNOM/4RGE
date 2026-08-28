@@ -24,6 +24,18 @@ export interface ContractAddresses {
   readonly agentAdapterRegistry: Address | null;
   readonly flowEscrow: Address | null;
   /**
+   * The v2 marketplace contracts, deployed alongside v1 rather than replacing
+   * it. v1 stays live and every run anchored there keeps verifying (§10.2),
+   * which is why these are separate slots and not new values in the old ones.
+   *
+   * `executionReceiptsV2` stores agentId and the hashes on chain;
+   * `agentAdapterRegistryV2` carries the signing key, payee and price;
+   * `flowEscrowV2` releases payment against an agent's own signature.
+   */
+  readonly executionReceiptsV2: Address | null;
+  readonly agentAdapterRegistryV2: Address | null;
+  readonly flowEscrowV2: Address | null;
+  /**
    * ERC-8004 IdentityRegistry. Pre-deployed on Galileo (§2), resolved by
    * on-chain probe rather than assumed: name "ERC-8004 Trustless Agent",
    * symbol AGENT, ERC-721 + Metadata.
@@ -74,6 +86,9 @@ const NO_CONTRACTS: ContractAddresses = {
   executionReceipts: null,
   flowRegistry: null,
   agentAdapterRegistry: null,
+  executionReceiptsV2: null,
+  agentAdapterRegistryV2: null,
+  flowEscrowV2: null,
   flowEscrow: null,
   identityRegistry: null,
   agenticIdRegistry: null,
@@ -93,6 +108,10 @@ const GALILEO_CONTRACTS: ContractAddresses = {
   flowRegistry: '0xe09aC2F04Fc663dB9ddb2824d44d5B1AFe7fD53f',
   executionReceipts: '0x741A36fAba40ee71223539a5A062FDEDC8574e30',
   agentAdapterRegistry: '0x239E66ca972bdA91542BA78c12B3003EFED8389e',
+  // Filled in by contracts/script/DeployV2.s.sol.
+  executionReceiptsV2: null,
+  agentAdapterRegistryV2: null,
+  flowEscrowV2: null,
   flowEscrow: '0xC40aC67bF4d63D8CdFeCBb80cE1C357c90291C39',
   identityRegistry: '0x7177a6867296406881E20d6647232314736Dd09A',
   agenticIdRegistry: '0x2700F6A3e505402C9daB154C5c6ab9cAEC98EF1F',

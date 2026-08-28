@@ -15,8 +15,9 @@
  * Two invariants shape the whole file:
  *
  * - Status is never assigned by hand. Every status comes from
- *   decideStepStatus, which is the only place the attestation rule lives
- *   (§1.3, §10.3). A structural test fails the build if that is bypassed.
+ *   decideStepStatus, which is the only place the attestation and identity
+ *   rules live (§1.3, §10.3). A structural test fails the build if that is
+ *   bypassed.
  * - Every step gets a receipt, including skipped ones. The chain root folds
  *   over a contiguous 0..n-1 range, so omitting a step would leave a gap and
  *   the run would not verify at all.
@@ -30,6 +31,7 @@ import {
   resolveTemplates,
   statusSucceeded,
   StepStatus,
+  verifyAgentSignature,
   verifyAttestation,
   ZERO_BYTES32,
   type AcknowledgedSigner,
@@ -52,6 +54,16 @@ export interface AnchorReceipt {
 
 export interface ChainWriter {
   readonly executorAddress: Hex;
+  /**
+   * The chain and contract this writer anchors to.
+   *
+   * Needed because an agent's signature commits to both — otherwise one
+   * signature would be valid against every deployment on every chain. The
+   * writer already knows them; asking the caller to repeat them would be a
+   * second source of truth for a value that must match exactly.
+   */
+  readonly chainId: number;
+  readonly receiptsAddress: Hex;
   isFlowPublished(flowId: Hex): Promise<boolean>;
   publishFlow(flowId: Hex, specRoot: Hex, name: string): Promise<void>;
   startRun(flowId: Hex, runId: Hex, executor: Hex): Promise<void>;
@@ -74,6 +86,22 @@ export interface ChainWriter {
  */
 export interface SignerRegistry {
   acknowledgedSigner(provider: Hex): Promise<AcknowledgedSigner | null>;
+}
+
+/**
+ * Reads the signing key an agent published for itself in the adapter
+ * registry.
+ *
+ * The trust anchor for identity, as `SignerRegistry` is for attestation, and
+ * read live for the same reason: an agent that rotates a compromised key
+ * should stop being credited for work signed with the old one.
+ *
+ * Optional. A flow that does not ask any step for a signed output never needs
+ * it, and a run of trusted in-house agents may reasonably not.
+ */
+export interface AgentRegistry {
+  /** Null when the agent published no key, which cannot verify to true. */
+  agentSigner(agentId: bigint): Promise<Hex | null>;
 }
 
 export interface TraceStore {
@@ -117,6 +145,12 @@ export interface ExecuteOptions {
   readonly endpointFor: (step: PlannedStep) => string;
   /** 0G's InferenceServing registry. Omitted means attestations cap at `present`. */
   readonly signers?: SignerRegistry;
+  /**
+   * The adapter registry, for checking agent output signatures. Omitted means
+   * no step can prove its agent's identity, so any step asking for
+   * `requireSignedOutput` records Unattested.
+   */
+  readonly agents?: AgentRegistry;
   /** Halt remaining waves after a step fails. Defaults to true (§5 policy). */
   readonly failFast?: boolean;
   readonly defaultTimeoutMs?: number;
@@ -142,6 +176,7 @@ export async function executeRun(options: ExecuteOptions): Promise<RunResult> {
     traces,
     endpointFor,
     signers,
+    agents,
     failFast = true,
     defaultTimeoutMs = 30_000,
     now = Date.now,
@@ -176,7 +211,10 @@ export async function executeRun(options: ExecuteOptions): Promise<RunResult> {
           endpointFor,
           defaultTimeoutMs,
           now,
+          chainId: chain.chainId,
+          receiptsAddress: chain.receiptsAddress,
           ...(signers === undefined ? {} : { signers }),
+          ...(agents === undefined ? {} : { agents }),
         }),
       ),
     );
@@ -232,11 +270,14 @@ interface RunStepArgs {
   endpointFor: (step: PlannedStep) => string;
   defaultTimeoutMs: number;
   now: () => number;
+  chainId: number;
+  receiptsAddress: Hex;
   signers?: SignerRegistry;
+  agents?: AgentRegistry;
 }
 
 async function runStep(args: RunStepArgs): Promise<StepOutcomeInternal> {
-  const { step, halted, inputs, outputs, statusById, runId, flowId, traces, endpointFor, defaultTimeoutMs, now, signers } = args;
+  const { step, halted, inputs, outputs, statusById, runId, flowId, traces, endpointFor, defaultTimeoutMs, now, signers, agents, chainId, receiptsAddress } = args;
   const startedAtMs = now();
 
   // A step whose upstream did not succeed has no data to run on. Skipping is
@@ -275,6 +316,7 @@ async function runStep(args: RunStepArgs): Promise<StepOutcomeInternal> {
   let attestation: string | null;
   let attestationBinding: ResponseSignature | null;
   let attestationProvider: Hex | null;
+  let outputSignature: Hex | null;
   let attempts: AttemptRecord[];
   try {
     const invocation = await invokeHttpAdapter(
@@ -285,6 +327,11 @@ async function runStep(args: RunStepArgs): Promise<StepOutcomeInternal> {
         stepIndex: step.stepIndex,
         input: resolvedInput,
         deadline: Math.floor((now() + timeoutMs) / 1000),
+        // Always sent, not only when a signature is required: an agent that
+        // signs unconditionally is the well-behaved case, and withholding
+        // these would make it unable to.
+        chainId,
+        receipts: receiptsAddress,
       },
       {
         timeoutMs,
@@ -295,6 +342,7 @@ async function runStep(args: RunStepArgs): Promise<StepOutcomeInternal> {
     attestation = invocation.attestation;
     attestationBinding = invocation.attestationBinding;
     attestationProvider = invocation.attestationProvider;
+    outputSignature = invocation.outputSignature;
     attempts = invocation.attempts;
   } catch (error) {
     const adapterError = error instanceof AdapterError ? error : null;
@@ -348,8 +396,41 @@ async function runStep(args: RunStepArgs): Promise<StepOutcomeInternal> {
   // the status agree and a verifier re-derives the same answer from chain.
   const binding = verifyAttestation({ bundle, output, acknowledgedSigner });
 
+  // Who produced it. Checked against the key the agent published for itself,
+  // read live so a rotated key stops vouching for the old one. A verifier
+  // repeats this from chain, which is why the signature goes into the trace.
+  let outputSignatureValid = false;
+  let agentSigner: Hex | null = null;
+  if (outputSignature !== null && agents !== undefined) {
+    try {
+      agentSigner = await agents.agentSigner(BigInt(step.agent));
+    } catch {
+      // An unreachable registry establishes nothing, which is what
+      // `outputSignatureValid: false` already says. It is not a failure of the
+      // step unless the step demanded the proof.
+      agentSigner = null;
+    }
+    outputSignatureValid = verifyAgentSignature(
+      {
+        chainId,
+        receipts: receiptsAddress,
+        runId,
+        stepIndex: step.stepIndex,
+        agentId: BigInt(step.agent),
+        inputHash,
+        outputHash,
+      },
+      outputSignature,
+      agentSigner,
+    );
+  }
+
   const endedAtMs = now();
-  const trace = buildTrace(step, runId, resolvedInput, output, bundle, binding, attempts, null, startedAtMs, endedAtMs);
+  const trace = buildTrace(step, runId, resolvedInput, output, bundle, binding, attempts, null, startedAtMs, endedAtMs, {
+    signature: outputSignature,
+    registeredSigner: agentSigner,
+    valid: outputSignatureValid,
+  });
   const { traceRoot } = await traces.put(trace as unknown as JsonValue);
 
   const status = decideStepStatus({
@@ -357,6 +438,8 @@ async function runStep(args: RunStepArgs): Promise<StepOutcomeInternal> {
     attestationPresent: attestation !== null,
     bindingLevel: binding.level,
     ...(step.requireBinding === undefined ? {} : { requireBinding: step.requireBinding }),
+    requireSignedOutput: step.requireSignedOutput === true,
+    outputSignatureValid,
   });
 
   const receipt: Receipt = {
@@ -405,6 +488,7 @@ function buildTrace(
   error: string | null,
   startedAtMs: number,
   endedAtMs: number,
+  identity: OutputIdentity | null = null,
 ): ExecutionTrace {
   return {
     version: '0gflow/1',
@@ -433,8 +517,20 @@ function buildTrace(
             signerResolved: binding.signerResolved,
             notes: binding.notes,
           },
+    // The signature itself is evidence — a verifier recovers the address from
+    // it and compares against the registry. `valid` beside it is the
+    // executor's finding, recorded for the same reason and with the same
+    // standing as the attestation level: readable, not authoritative.
+    outputIdentity: identity,
     error,
   };
+}
+
+/** What the trace records about who produced a step's output. */
+export interface OutputIdentity {
+  readonly signature: Hex | null;
+  readonly registeredSigner: Hex | null;
+  readonly valid: boolean;
 }
 
 async function buildFailed(

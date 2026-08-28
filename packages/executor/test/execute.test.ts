@@ -76,6 +76,10 @@ afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
 
 class FakeChain implements ChainWriter {
   readonly executorAddress = '0x00000000000000000000000000000000000000e1' as Hex;
+  // What an agent's signature commits to. A fictional chain id: the config
+  // scan fails the build on a literal 0G one outside packages/config.
+  readonly chainId = 31337;
+  readonly receiptsAddress = '0x741a36faba40ee71223539a5a062fdedc8574e30' as Hex;
   readonly anchored: Receipt[] = [];
   readonly published = new Set<string>();
   sealed: { chainRoot: Hex; stepCount: number; outcome: number } | null = null;

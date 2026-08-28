@@ -100,6 +100,24 @@ export interface StatusDecision {
    * levels do not carry that claim.
    */
   readonly requireBinding?: BindingLevel;
+  /**
+   * Whether the step demands that the agent prove it produced this output.
+   *
+   * Distinct from `requireAttestation`, which asks *where* the work ran. This
+   * asks *who* did it. A TEE attestation says an enclave computed something;
+   * it says nothing about which of the market's agents is entitled to the
+   * credit, or the payment.
+   */
+  readonly requireSignedOutput?: boolean;
+  /**
+   * Whether the agent's signature recovered to the key that agent published in
+   * the adapter registry.
+   *
+   * Undefined means the caller did not check, which is not the same as a valid
+   * signature and is never treated as one — the same rule `bindingLevel`
+   * follows, for the same §1.3 reason.
+   */
+  readonly outputSignatureValid?: boolean;
   /** Set when the invocation terminally failed. */
   readonly error?: string;
   /** Set when policy prevented the step from running at all. */
@@ -127,6 +145,13 @@ export function decideStepStatus(decision: StatusDecision): StepStatus {
     // its own existence. Assuming better would be the promotion §1.3 forbids.
     const achieved = decision.bindingLevel ?? 'present';
     if (!meetsBinding(achieved, required)) return StepStatus.Unattested;
+  }
+  // An unproven identity is the same class of failure as a missing
+  // attestation: the work may well be correct, but nobody can confirm who did
+  // it. In a market that is not a detail — it decides who gets paid and whose
+  // record the step lands on.
+  if (decision.requireSignedOutput === true && decision.outputSignatureValid !== true) {
+    return StepStatus.Unattested;
   }
   return StepStatus.Ok;
 }

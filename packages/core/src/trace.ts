@@ -64,6 +64,23 @@ export interface ExecutionTrace {
     readonly signerResolved: boolean;
     readonly notes: readonly string[];
   } | null;
+  /**
+   * Who produced this output, and the proof.
+   *
+   * `signature` is evidence: a verifier recovers an address from it, looks up
+   * what the agent published in the adapter registry, and decides for itself.
+   * `valid` is the executor's finding, recorded with exactly the standing of
+   * `attestationBinding` above — readable, never authoritative.
+   *
+   * Absent on traces written before agent signatures existed, which is not the
+   * same as a signature that failed. Such a step simply never claimed an
+   * identity, and a verifier reports it as unproven rather than as forged.
+   */
+  readonly outputIdentity?: {
+    readonly signature: string | null;
+    readonly registeredSigner: string | null;
+    readonly valid: boolean;
+  } | null;
   readonly error?: string | null;
 }
 

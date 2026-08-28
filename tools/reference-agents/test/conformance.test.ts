@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { hashJson, verifyAgentSignature, type Hex, type JsonValue } from '@0gflow/core';
 import { createAgentServer } from '../src/serve.js';
 import { AGENTS } from '../src/agents.js';
 
@@ -35,7 +36,11 @@ describe.each(AGENTS.map((a) => [a.id, a] as const))('agent %s', (id, agent) => 
   test('exposes health', async () => {
     const res = await fetch(`${base}/agents/${id}/health`);
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ ok: true, agentId: agent.agentId });
+    expect(await res.json()).toMatchObject({
+      ok: true,
+      agentId: agent.identity.agentId,
+      signer: agent.identity.address,
+    });
   });
 
   test('exposes input and output schemas', async () => {
@@ -113,5 +118,100 @@ describe('routing', () => {
     const { status, json } = await post('/agents/ghost/invoke', { input: {} });
     expect(status).toBe(404);
     expect(json['error']).toBeDefined();
+  });
+});
+
+/**
+ * The identities are only worth having if the signatures they produce
+ * actually verify. This checks the whole path the executor walks: the server
+ * signs, and `verifyAgentSignature` — the same function the executor and the
+ * verifier call — recovers the agent's published key from it.
+ */
+describe('each agent proves its own identity', () => {
+  const CHAIN_ID = 31337;
+  const RECEIPTS = '0x741a36faba40ee71223539a5a062fdedc8574e30' as Hex;
+  const RUN_ID = `0x${'22'.repeat(32)}` as Hex;
+
+  // The agents that return an output at all; always-fails never does.
+  const producers = AGENTS.filter((a) => a.id !== 'always-fails');
+
+  const invoke = (agent: (typeof AGENTS)[number], input: Record<string, JsonValue>) =>
+    post(`/agents/${agent.id}/invoke`, {
+      runId: RUN_ID,
+      flowId: `0x${'11'.repeat(32)}`,
+      stepIndex: 3,
+      input,
+      deadline: Math.floor(Date.now() / 1000) + 30,
+      chainId: CHAIN_ID,
+      receipts: RECEIPTS,
+    });
+
+  const INPUTS: Record<string, Record<string, JsonValue>> = {
+    audit: { repo: 'https://example.test/repo' },
+    summarize: { text: 'a report' },
+    score: { report: 'no critical findings' },
+    publish: { body: 'body text', grade: 90 },
+    'never-attests': { text: 'a report' },
+  };
+
+  test.each(producers.map((a) => [a.id, a] as const))(
+    '%s signs an output that recovers to its registered key',
+    async (id, agent) => {
+      const { status, json } = await invoke(agent, INPUTS[id] ?? {});
+      expect(status).toBe(200);
+
+      const signature = json['outputSignature'] as Hex;
+      expect(signature).toMatch(/^0x[0-9a-f]{130}$/);
+
+      const claim = {
+        chainId: CHAIN_ID,
+        receipts: RECEIPTS,
+        runId: RUN_ID,
+        stepIndex: 3,
+        agentId: BigInt(agent.identity.agentId),
+        inputHash: hashJson(INPUTS[id] ?? {}),
+        outputHash: hashJson(json['output'] as JsonValue),
+      };
+
+      expect(verifyAgentSignature(claim, signature, agent.identity.address as Hex)).toBe(true);
+    },
+  );
+
+  test('one agent cannot sign for another', async () => {
+    // The concrete thing distinct identities buy: audit's signature must not
+    // verify as summarize's, even on identical bytes.
+    const audit = AGENTS.find((a) => a.id === 'audit')!;
+    const summarize = AGENTS.find((a) => a.id === 'summarize')!;
+    expect(audit.identity.address).not.toBe(summarize.identity.address);
+    expect(audit.identity.agentId).not.toBe(summarize.identity.agentId);
+
+    const { json } = await invoke(audit, INPUTS['audit']!);
+    const claim = {
+      chainId: CHAIN_ID,
+      receipts: RECEIPTS,
+      runId: RUN_ID,
+      stepIndex: 3,
+      agentId: BigInt(audit.identity.agentId),
+      inputHash: hashJson(INPUTS['audit']!),
+      outputHash: hashJson(json['output'] as JsonValue),
+    };
+
+    expect(
+      verifyAgentSignature(claim, json['outputSignature'] as Hex, summarize.identity.address as Hex),
+    ).toBe(false);
+  });
+
+  test('no signature is produced when the executor did not say where it anchors', async () => {
+    // An older executor sends no chainId. A signature not bound to a chain and
+    // contract would be valid against every deployment, which is worse than
+    // none — so the server returns none.
+    const { json } = await post(`/agents/audit/invoke`, {
+      runId: RUN_ID,
+      stepIndex: 3,
+      input: INPUTS['audit'],
+      deadline: Math.floor(Date.now() / 1000) + 30,
+    });
+    expect(json['outputSignature']).toBeNull();
+    expect(json['output']).toBeDefined();
   });
 });

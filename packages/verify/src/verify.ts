@@ -24,6 +24,8 @@
 
 import {
   attestationRefFor,
+  recoverAgentSigner,
+  verifyAgentSignature,
   describeBinding,
   foldChainRoot,
   hashJson,
@@ -174,8 +176,34 @@ export interface StepCheck {
    * read from the trace. null when there was no attestation to evaluate.
    */
   readonly binding: AttestationVerification | null;
+  /**
+   * Whether the agent named in the receipt actually signed this output,
+   * recomputed here from the trace and the registry rather than read from the
+   * executor's own finding.
+   */
+  readonly outputIdentity: IdentityState;
+  /** The address the signature recovers to, when there was one. */
+  readonly recoveredAgentSigner: Hex | null;
   readonly notes: string[];
 }
+
+/**
+ * What could be established about who produced a step's output.
+ *
+ *   absent            the trace carries no signature — the pre-marketplace
+ *                     default, and not a failure
+ *   unchecked         a signature exists but no adapter registry was supplied
+ *   no-registered-key the agent has published no signing key, so nothing can
+ *                     check the signature against anything
+ *   valid             the signature recovers to the agent's published key
+ *   unconfirmed       it does not
+ */
+export type IdentityState =
+  | 'absent'
+  | 'unchecked'
+  | 'no-registered-key'
+  | 'valid'
+  | 'unconfirmed';
 
 export interface VerificationReport {
   readonly runId: Hex;
@@ -211,6 +239,20 @@ export interface VerifyOptions {
   readonly identityRegistry: Hex | null;
   /** Flow spec; null skips step 4 and marks it incomplete. */
   readonly spec: SpecForLinkage | null;
+  /**
+   * What is needed to re-derive an agent output signature: where the adapter
+   * registry lists signing keys, and the chain and contract the signature was
+   * bound to.
+   *
+   * All three or none. A digest recomputed against the wrong chain or the
+   * wrong receipts address fails for a reason that looks exactly like forgery,
+   * so a partially-configured check would be worse than an absent one.
+   */
+  readonly agentIdentity?: {
+    readonly registry: Hex;
+    readonly receipts: Hex;
+    readonly chainId: number;
+  };
 }
 
 interface StepEvidenceRecord {
@@ -220,7 +262,7 @@ interface StepEvidenceRecord {
 }
 
 export async function verifyRun(options: VerifyOptions): Promise<VerificationReport> {
-  const { runId, chain, traces, identityRegistry, spec } = options;
+  const { runId, chain, traces, identityRegistry, spec, agentIdentity } = options;
   const failures: string[] = [];
   const incomplete: string[] = [];
 
@@ -304,6 +346,8 @@ export async function verifyRun(options: VerifyOptions): Promise<VerificationRep
     let hashesMatch: boolean | null = null;
     let attestation: AttestationState = 'not-required';
     let binding: AttestationVerification | null = null;
+    let outputIdentity: IdentityState = 'absent';
+    let recoveredAgentSigner: Hex | null = null;
 
     if (fetched === null) {
       allTracesFromStorage = false;
@@ -380,6 +424,63 @@ export async function verifyRun(options: VerifyOptions): Promise<VerificationRep
           notes.push(...checked.notes);
           failures.push(...checked.failures.map((f) => `step ${receipt.stepIndex}: ${f}`));
         }
+
+        // Step 8: identity. Who produced this output, re-derived from the
+        // signature in the trace and the key the agent published on chain.
+        // The executor's own `outputIdentity.valid` is deliberately not read:
+        // that would be letting the executor grade its own homework, exactly
+        // as with the attestation level above.
+        const signature = trace.outputIdentity?.signature ?? null;
+        if (signature === null) {
+          outputIdentity = 'absent';
+          if (receipt.status === StepStatus.Unattested) {
+            notes.push('required a signed output and did not get one');
+          }
+        } else if (agentIdentity === undefined || chain.agentSigner === undefined) {
+          outputIdentity = 'unchecked';
+          incomplete.push(
+            `step ${receipt.stepIndex}: the trace carries an agent signature but no adapter registry was configured, so it is unknown whether agent ${receipt.agentId} produced this output`,
+          );
+        } else {
+          const claim = {
+            chainId: agentIdentity.chainId,
+            receipts: agentIdentity.receipts,
+            runId: receipt.runId,
+            stepIndex: receipt.stepIndex,
+            agentId: receipt.agentId,
+            inputHash: receipt.inputHash,
+            outputHash: receipt.outputHash,
+          };
+          recoveredAgentSigner = recoverAgentSigner(claim, signature as Hex);
+
+          let registered: Hex | null = null;
+          try {
+            registered = await chain.agentSigner(agentIdentity.registry, receipt.agentId);
+          } catch {
+            registered = null;
+          }
+
+          if (registered === null) {
+            outputIdentity = 'no-registered-key';
+            incomplete.push(
+              `step ${receipt.stepIndex}: agent ${receipt.agentId} has published no signing key in ${agentIdentity.registry}, so its signature establishes nothing`,
+            );
+          } else if (verifyAgentSignature(claim, signature as Hex, registered)) {
+            outputIdentity = 'valid';
+            notes.push(`output signed by agent ${receipt.agentId} (${registered})`);
+          } else {
+            // Reported as unconfirmed rather than as a forgery, and so listed
+            // under incomplete rather than failures. An agent that rotated a
+            // compromised key produces exactly this: a signature that was
+            // valid when made and no longer recovers to the registered key.
+            // Calling that tampering would punish the right behaviour, and the
+            // hash checks above already catch a modified output.
+            outputIdentity = 'unconfirmed';
+            incomplete.push(
+              `step ${receipt.stepIndex}: the output signature recovers to ${recoveredAgentSigner ?? 'nothing'}, but agent ${receipt.agentId} has ${registered} registered, so its authorship is unconfirmed`,
+            );
+          }
+        }
       } catch (error) {
         hashesMatch = false;
         failures.push(`step ${receipt.stepIndex}: ${(error as Error).message}`);
@@ -400,6 +501,8 @@ export async function verifyRun(options: VerifyOptions): Promise<VerificationRep
       hashesMatch,
       attestation,
       binding,
+      outputIdentity,
+      recoveredAgentSigner,
       notes,
     });
   }

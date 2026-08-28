@@ -13,6 +13,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { JsonValue } from '@0gflow/core';
+import { signOutput, type InvokeRequest } from '@0gflow/adapter-sdk';
 import { AGENTS, AGENTS_BY_ID } from './agents.js';
 
 const PORT = Number(process.env['AGENT_PORT'] ?? 8710);
@@ -45,7 +46,8 @@ export function createAgentServer() {
         return send(res, 200, {
           agents: AGENTS.map((a) => ({
             id: a.id,
-            agentId: a.agentId,
+            agentId: a.identity.agentId,
+            signer: a.identity.address,
             description: a.description,
             endpoint: `/agents/${a.id}`,
           })),
@@ -60,7 +62,17 @@ export function createAgentServer() {
         return send(res, 404, { error: { code: 'unknown-agent', message: `no agent "${agentId}"`, retryable: false } });
       }
 
-      if (action === 'health') return send(res, 200, { ok: true, agentId: agent.agentId, version: '1.0.0' });
+      if (action === 'health') {
+        return send(res, 200, {
+          ok: true,
+          agentId: agent.identity.agentId,
+          // Published so an operator can check the registry lists this exact
+          // key. A signer mismatch is otherwise invisible until a step
+          // silently records Unattested.
+          signer: agent.identity.address,
+          version: '1.0.0',
+        });
+      }
       if (action === 'schema') return send(res, 200, agent.schema);
 
       if (req.method !== 'POST') {
@@ -85,9 +97,27 @@ export function createAgentServer() {
         if (result.error !== undefined) {
           return send(res, result.status ?? 500, { error: result.error });
         }
+
+        // Signed here rather than inside each agent, so the agents stay the
+        // boring deterministic things they are for and there is one place the
+        // digest can be got wrong.
+        //
+        // Only when the executor said where this step will be anchored. An
+        // older executor sends neither field, and a signature not bound to a
+        // chain and contract would be valid everywhere — worse than none.
+        let outputSignature: string | null = null;
+        const request = envelope as unknown as InvokeRequest;
+        if (typeof request.chainId === 'number' && typeof request.receipts === 'string') {
+          ({ signature: outputSignature } = await signOutput(
+            { request, agentId: agent.identity.agentId, output: result.output ?? null },
+            (digest) => agent.identity.sign(digest),
+          ));
+        }
+
         return send(res, result.status ?? 200, {
           output: result.output,
           attestation: result.attestation ?? null,
+          outputSignature,
           meta: { durationMs: Date.now() - startedAt, agent: agent.id },
         });
       } catch (error) {
