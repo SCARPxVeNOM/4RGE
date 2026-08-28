@@ -171,25 +171,6 @@ importers:
         specifier: ^2.21.55
         version: 2.55.19(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)
 
-  templates/agent:
-    dependencies:
-      '@0gflow/adapter-sdk':
-        specifier: workspace:*
-        version: link:../../packages/adapter-sdk
-      viem:
-        specifier: ^2.21.0
-        version: 2.55.19(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)
-    devDependencies:
-      '@types/node':
-        specifier: ^22.10.0
-        version: 22.20.1
-      tsx:
-        specifier: ^4.19.2
-        version: 4.23.12
-      typescript:
-        specifier: ^5.7.0
-        version: 5.9.3
-
   tools/attestation-probe:
     dependencies:
       '@0gflow/config':

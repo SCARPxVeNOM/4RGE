@@ -8,6 +8,8 @@
  * places nobody thinks about.
  */
 
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { GALILEO, type Network } from '@0gflow/config';
 import { publishAgent, PublishError } from './publish.js';
 
@@ -162,7 +164,27 @@ export async function main(argv: readonly string[], network: Network = GALILEO):
   }
 }
 
-if (process.argv[1]?.includes('publish') === true) {
+/**
+ * Whether this module is the program being run, rather than imported.
+ *
+ * Compared as resolved real paths. npm's bin shim execs through
+ * `node_modules/.bin/../@0gflow/<pkg>/dist/cli.js`, a symlinked install
+ * resolves somewhere else again, and a relative invocation is shorter still —
+ * all the same file under different names. Matching on the *shape* of the path,
+ * which this used to do, silently ran nothing the moment that shape changed.
+ * Running nothing and exiting 0 is the worst failure available to a CLI.
+ */
+function isEntrypoint(moduleUrl: string): boolean {
+  const entry = process.argv[1];
+  if (entry === undefined) return false;
+  try {
+    return realpathSync(entry) === realpathSync(fileURLToPath(moduleUrl));
+  } catch {
+    return false;
+  }
+}
+
+if (isEntrypoint(import.meta.url)) {
   main(process.argv.slice(2))
     .then((code) => process.exit(code))
     .catch((error: Error) => {

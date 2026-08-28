@@ -3,7 +3,7 @@
 A read-only HTTP API over an indexed 0G Flow database.
 
 ```sh
-DATABASE_URL=postgres://… npx @0gflow/explorer-api
+DATABASE_URL=postgres://… npx @0gflow/explorer-api   # or: 0gflow-explorer-api
 ```
 
 `GET /api/runs`, `/api/runs/:runId`, `/api/agents`, `/api/agents/:agentId`,

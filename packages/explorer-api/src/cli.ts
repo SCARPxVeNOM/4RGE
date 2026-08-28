@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 /**
  * Explorer API server — spec §8.2.
  *
@@ -5,6 +6,8 @@
  *   … serve --memory   serve an empty in-memory index (for a smoke test)
  */
 
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { GALILEO, requireResolved } from '@0gflow/config';
@@ -76,7 +79,27 @@ export async function main(argv: readonly string[]): Promise<number> {
   return 0;
 }
 
-if (process.argv[1]?.includes('cli') === true) {
+/**
+ * Whether this module is the program being run, rather than imported.
+ *
+ * Compared as resolved real paths. npm's bin shim execs through
+ * `node_modules/.bin/../@0gflow/<pkg>/dist/cli.js`, a symlinked install
+ * resolves somewhere else again, and a relative invocation is shorter still —
+ * all the same file under different names. Matching on the *shape* of the path,
+ * which this used to do, silently ran nothing the moment that shape changed.
+ * Running nothing and exiting 0 is the worst failure available to a CLI.
+ */
+function isEntrypoint(moduleUrl: string): boolean {
+  const entry = process.argv[1];
+  if (entry === undefined) return false;
+  try {
+    return realpathSync(entry) === realpathSync(fileURLToPath(moduleUrl));
+  } catch {
+    return false;
+  }
+}
+
+if (isEntrypoint(import.meta.url)) {
   main(process.argv.slice(2))
     .then((code) => { if (code !== 0) process.exitCode = code; })
     .catch((error: unknown) => {

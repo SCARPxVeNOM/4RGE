@@ -1,6 +1,6 @@
 {
   "name": "@0gflow/verify",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Independently verify a 0G Flow run from public chain data. Single file, zero dependencies.",
   "type": "module",
   "bin": {
@@ -10,8 +10,7 @@
   "files": [
     "README.md",
     "dist",
-    "dist-tsc",
-    "src"
+    "dist-tsc"
   ],
   "scripts": {
     "build": "node scripts/bundle.mjs"
@@ -29,9 +28,18 @@
       "types": "./dist-tsc/index.d.ts",
       "default": "./dist/verify.mjs"
     },
-    "./decode": "./src/decode.ts",
-    "./sources": "./src/sources.ts",
-    "./verify": "./src/verify.ts"
+    "./decode": {
+      "types": "./dist-tsc/decode.d.ts",
+      "default": "./dist-tsc/decode.js"
+    },
+    "./sources": {
+      "types": "./dist-tsc/sources.d.ts",
+      "default": "./dist-tsc/sources.js"
+    },
+    "./verify": {
+      "types": "./dist-tsc/verify.d.ts",
+      "default": "./dist-tsc/verify.js"
+    }
   },
   "keywords": [
     "0g",

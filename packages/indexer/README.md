@@ -4,7 +4,7 @@ Index 0G Flow receipts, seals, agent listings and bonds into Postgres, with
 backfill and reorg handling.
 
 ```sh
-DATABASE_URL=postgres://… npx @0gflow/indexer --v2
+DATABASE_URL=postgres://… npx @0gflow/indexer --v2   # or: 0gflow-indexer
 ```
 
 Every write is idempotent and carries the block it came from, so a reorg can

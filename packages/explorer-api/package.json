@@ -1,6 +1,6 @@
 {
   "name": "@0gflow/explorer-api",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Read-only HTTP API over an indexed 0G Flow database.",
   "type": "module",
   "main": "./dist/index.js",
@@ -54,5 +54,8 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "bin": {
+    "0gflow-explorer-api": "./dist/cli.js"
   }
 }

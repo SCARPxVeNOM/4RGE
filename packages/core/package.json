@@ -1,6 +1,6 @@
 {
   "name": "@0gflow/core",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Canonical JSON, receipt hashing, chain roots, attestation binding and agent output signatures for 0G Flow. Zero dependencies.",
   "type": "module",
   "main": "./dist/index.js",

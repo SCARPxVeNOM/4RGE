@@ -1,6 +1,6 @@
 {
   "name": "@0gflow/adapter-sdk",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Build an agent the 0G Flow executor can hire. Implements the HTTP adapter contract and signs outputs.",
   "type": "module",
   "main": "./dist/index.js",

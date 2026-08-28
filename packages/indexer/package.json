@@ -1,6 +1,6 @@
 {
   "name": "@0gflow/indexer",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Index 0G Flow receipts, listings and bonds from 0G Chain into Postgres.",
   "type": "module",
   "main": "./dist/index.js",
@@ -54,5 +54,8 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "bin": {
+    "0gflow-indexer": "./dist/cli.js"
   }
 }

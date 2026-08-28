@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 /**
  * `npx @0gflow/conform <endpoint>` — spec §6.4.
  *
@@ -6,6 +7,8 @@
  * than no suite.
  */
 
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { runConformance } from './checks.js';
 import { createHttpProbe } from './probe.js';
 import { renderJson, renderReport } from './report.js';
@@ -108,10 +111,27 @@ export async function main(argv: readonly string[]): Promise<number> {
   return report.conformant ? 0 : 1;
 }
 
-const invokedDirectly =
-  process.argv[1] !== undefined && /conform(\/|\\)(dist(\/|\\))?(src(\/|\\))?cli\.(js|ts)$/.test(process.argv[1]);
+/**
+ * Whether this module is the program being run, rather than imported.
+ *
+ * Compared as resolved real paths. npm's bin shim execs through
+ * `node_modules/.bin/../@0gflow/<pkg>/dist/cli.js`, a symlinked install
+ * resolves somewhere else again, and a relative invocation is shorter still —
+ * all the same file under different names. Matching on the *shape* of the path,
+ * which this used to do, silently ran nothing the moment that shape changed.
+ * Running nothing and exiting 0 is the worst failure available to a CLI.
+ */
+function isEntrypoint(moduleUrl: string): boolean {
+  const entry = process.argv[1];
+  if (entry === undefined) return false;
+  try {
+    return realpathSync(entry) === realpathSync(fileURLToPath(moduleUrl));
+  } catch {
+    return false;
+  }
+}
 
-if (invokedDirectly) {
+if (isEntrypoint(import.meta.url)) {
   main(process.argv.slice(2))
     .then((code) => {
       process.exitCode = code;

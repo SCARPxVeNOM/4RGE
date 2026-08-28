@@ -1,6 +1,6 @@
 {
   "name": "@0gflow/executor",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Run a 0G Flow workflow: resolve agents from the registry, invoke them, anchor receipts, settle payment.",
   "type": "module",
   "main": "./dist/index.js",
