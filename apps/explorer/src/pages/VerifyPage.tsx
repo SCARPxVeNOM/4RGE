@@ -117,7 +117,10 @@ function Verdict({ runId, detail }: { runId: string; detail: RunDetail }) {
       ? {
           tone: 'ok',
           title: 'The receipts match what was recorded on chain.',
-          body: `All ${run.stepCount} step${run.stepCount === 1 ? '' : 's'} combine to ${short(check.computed, 12)}, which is exactly what this run sealed on the blockchain. Your browser worked that out — it did not ask this site whether it was true.`,
+          body:
+            run.stepCount === 1
+              ? `Its single step gives ${short(check.computed, 12)}, which is exactly what this run recorded on the blockchain. Your browser worked that out — it did not ask this site whether it was true.`
+              : `All ${run.stepCount} steps combine to ${short(check.computed, 12)}, which is exactly what this run recorded on the blockchain. Your browser worked that out — it did not ask this site whether it was true.`,
         }
       : check.kind === 'mismatch'
         ? {
