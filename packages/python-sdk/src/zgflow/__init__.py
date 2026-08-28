@@ -48,6 +48,15 @@ from .agent import (
 
 __version__ = "1.0.0"
 
+from .signature import (
+    AGENT_OUTPUT_DOMAIN,
+    AgentOutputClaim,
+    SignatureError,
+    agent_output_digest,
+    agent_output_message_hash,
+    sign_output,
+)
+
 __all__ = [
     "__version__",
     # canonicalisation
@@ -89,4 +98,11 @@ __all__ = [
     "require_string",
     "require_number",
     "require_object",
+    # signatures
+    "AGENT_OUTPUT_DOMAIN",
+    "AgentOutputClaim",
+    "SignatureError",
+    "agent_output_digest",
+    "agent_output_message_hash",
+    "sign_output",
 ]

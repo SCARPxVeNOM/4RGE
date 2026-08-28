@@ -124,6 +124,24 @@ class TestAttestationBinding:
         output_path="$.text",
     )
 
+    def test_a_binding_without_a_provider_is_refused(self) -> None:
+        # A binding nobody can attribute to a provider is unverifiable: the
+        # executor would have no acknowledged signer to check it against, and
+        # the step would look attested while proving nothing. Matches the
+        # TypeScript SDK, which refuses the same shape.
+        result = call(
+            agent_with(
+                lambda _r: AgentResponse(
+                    output={"text": "ok"},
+                    attestation="quote",
+                    attestation_binding=self.BINDING,
+                )
+            ),
+            envelope({"text": "x"}),
+        )
+        assert result.status == 500
+        assert result.body["error"]["code"] == "bad-binding"
+
     def test_serialises_with_the_camelcase_wire_names(self) -> None:
         result = call(
             agent_with(
@@ -131,10 +149,15 @@ class TestAttestationBinding:
                     output={"text": "Summary: ok."},
                     attestation="quote",
                     attestation_binding=self.BINDING,
+                    # Required alongside a binding: without it the executor has
+                    # no registry entry to check the signature against, so the
+                    # binding proves nothing.
+                    attestation_provider="0x" + "dd" * 20,
                 )
             ),
             envelope({"text": "x"}),
         )
+        assert result.body["attestationProvider"] == "0x" + "dd" * 20
         assert result.body["attestationBinding"] == {
             "chatID": "chat-1",
             "model": "qwen/qwen2.5-omni-7b",

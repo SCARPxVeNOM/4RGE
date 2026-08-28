@@ -23,6 +23,7 @@ or ``http.server``, and none of that should change what the executor sees.
 from __future__ import annotations
 
 import inspect
+import re
 from dataclasses import dataclass
 from typing import Any, Awaitable, Mapping, Protocol
 
@@ -87,6 +88,12 @@ class InvokeRequest:
     input: dict[str, Any]
     #: Unix seconds after which the executor stops waiting.
     deadline: int
+    #: The chain and receipts contract this step will be anchored to, so an
+    #: agent can sign an output bound to one specific anchoring. Absent when
+    #: the executor is not requesting a signature; never defaulted, because a
+    #: signature over chain 0 would look well-formed and verify nowhere.
+    chain_id: int | None = None
+    receipts: str | None = None
 
 
 @dataclass(frozen=True)
@@ -136,6 +143,15 @@ class AgentResponse:
     #: The signature binding ``attestation`` to ``output``. Without it the
     #: strongest level a step can reach is "present".
     attestation_binding: AttestationBinding | None = None
+    #: The 0G provider whose acknowledged TEE signer produced the binding.
+    attestation_provider: str | None = None
+    #: The agent's own signature over this output — 65 bytes, 0x hex.
+    #:
+    #: Proof of authorship rather than of environment. An attestation says
+    #: where the work ran; this says which agent is claiming it, and it is what
+    #: ``FlowEscrowV2.releaseStep`` checks before paying. Build it with
+    #: :func:`zgflow.sign_output`.
+    output_signature: str | None = None
 
 
 class _Invoker(Protocol):
@@ -169,6 +185,11 @@ def _parse_request(body: Any) -> InvokeRequest | None:
         step_index=int(body.get("stepIndex", 0) or 0),
         input=payload,
         deadline=int(body.get("deadline", 0) or 0),
+        # Left as None when absent rather than defaulted. A default would let
+        # an agent sign against chain 0 and a zero address, and that signature
+        # would verify nowhere while looking perfectly well-formed.
+        chain_id=body["chainId"] if isinstance(body.get("chainId"), int) else None,
+        receipts=body["receipts"] if isinstance(body.get("receipts"), str) else None,
     )
 
 
@@ -236,11 +257,36 @@ async def handle_invoke(agent: AgentDefinition, body: Any) -> HandlerResult:
                         500,
                     )
 
+        signature = result.output_signature
+        if signature is not None and not re.fullmatch(r"0x[0-9a-fA-F]{130}", signature):
+            # A signature the executor cannot parse is recorded as an unproven
+            # identity, which looks the same as an agent that declined to sign.
+            # Saying so here points at the actual mistake.
+            raise AgentError(
+                "output_signature must be 65 bytes of 0x hex; build it with sign_output()",
+                "bad-signature",
+                False,
+                500,
+            )
+
+        if binding is not None and result.attestation_provider is None:
+            # A binding nobody can attribute to a provider is unverifiable: the
+            # executor would have no registry entry to check it against.
+            raise AgentError(
+                "attestation_binding was supplied without attestation_provider, "
+                "so nothing could verify it",
+                "bad-binding",
+                False,
+                500,
+            )
+
         return HandlerResult(
             200,
             {
                 "output": result.output,
                 "attestation": result.attestation,
+                "attestationProvider": result.attestation_provider,
+                "outputSignature": signature,
                 # Wire names match the TypeScript SDK: an executor cannot tell
                 # which language an agent was written in, and a different
                 # spelling here would silently produce an unbound step.
