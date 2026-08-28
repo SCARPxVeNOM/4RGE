@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "live": "tsx src/run.ts",
-    "marketplace": "tsx src/marketplace.ts"
+    "marketplace": "tsx src/marketplace.ts",
+    "paid": "tsx src/paid.ts"
   },
   "dependencies": {
     "@0gflow/config": "workspace:*",

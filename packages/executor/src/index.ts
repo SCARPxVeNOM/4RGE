@@ -35,3 +35,4 @@ export {
   type ResolvedAdapter,
   type ViemAdapterRegistryOptions,
 } from './adapters.js';
+export { ViemEscrow, EscrowError, type ViemEscrowOptions } from './escrow.js';

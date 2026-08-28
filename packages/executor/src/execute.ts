@@ -123,6 +123,14 @@ export interface StepResult {
   readonly anchor: AnchorReceipt;
   readonly error: string | null;
   readonly attempts: AttemptRecord[];
+  /**
+   * The agent's signature over this step's output, when it produced one.
+   *
+   * Surfaced because `FlowEscrowV2.releaseStep` needs it: the signature is
+   * the authorisation to pay, and without it here the caller would have to
+   * fetch the trace back out of storage to collect its own payment evidence.
+   */
+  readonly outputSignature: Hex | null;
 }
 
 export interface RunResult {
@@ -512,6 +520,7 @@ async function runStep(args: RunStepArgs): Promise<StepOutcomeInternal> {
       anchor: { txHash: ZERO_BYTES32, blockNumber: 0n, logIndex: 0 },
       error: null,
       attempts,
+      outputSignature,
     },
   };
 }
@@ -658,6 +667,9 @@ async function buildFailed(
       anchor: { txHash: ZERO_BYTES32, blockNumber: 0n, logIndex: 0 },
       error,
       attempts: [...attempts],
+      // A step that failed produced no output to sign, so there is nothing
+      // payable here. null says that, rather than leaving it ambiguous.
+      outputSignature: null,
     },
   };
 }
@@ -714,6 +726,7 @@ async function buildSkipped(
       anchor: { txHash: ZERO_BYTES32, blockNumber: 0n, logIndex: 0 },
       error: reason,
       attempts: [],
+      outputSignature: null,
     },
   };
 }
