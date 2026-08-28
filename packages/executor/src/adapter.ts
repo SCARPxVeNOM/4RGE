@@ -70,6 +70,14 @@ export interface InvokeResult {
    * what `FlowEscrowV2` requires before paying.
    */
   readonly outputSignature: Hex | null;
+  /**
+   * Runs the agent says it opened to do this job.
+   *
+   * A disclosure the agent made, not something the executor observed. Recorded
+   * so a verifier can check each one and so downstream readers can see who
+   * else was involved.
+   */
+  readonly hiredRuns: readonly Hex[];
   readonly meta: JsonValue | null;
   readonly attempts: AttemptRecord[];
 }
@@ -189,9 +197,25 @@ function parseSuccess(body: string, attempts: AttemptRecord[]): InvokeResult {
     attestationBinding: parseBinding(envelope['attestationBinding']),
     attestationProvider: parseProvider(envelope['attestationProvider']),
     outputSignature: parseSignature(envelope['outputSignature']),
+    hiredRuns: parseHiredRuns(envelope['hiredRuns']),
     meta: (envelope['meta'] ?? null) as JsonValue | null,
     attempts,
   };
+}
+
+/**
+ * Run ids an agent disclosed, dropping anything malformed.
+ *
+ * Dropped rather than rejected: a bad entry in this list says nothing about
+ * whether the output is good, and failing the step over it would punish the
+ * caller for the agent's bookkeeping. The SDK refuses to emit one, so an agent
+ * using it never gets here.
+ */
+function parseHiredRuns(value: unknown): Hex[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((v): v is string => typeof v === 'string' && /^0x[0-9a-fA-F]{64}$/.test(v))
+    .map((v) => v.toLowerCase() as Hex);
 }
 
 /**

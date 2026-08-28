@@ -337,3 +337,40 @@ describe('routeAgentRequest', () => {
     expect(await routeAgentRequest(echo, 'POST', '/', null)).toBeNull();
   });
 });
+
+
+describe('disclosing hired runs', () => {
+  const agent = (hiredRuns: readonly string[]): AgentDefinition => ({
+    agentId: '7',
+    schema: { input: {}, output: {} },
+    invoke: () => ({ output: { ok: true }, hiredRuns }),
+  });
+
+  const body = {
+    runId: `0x${'22'.repeat(32)}`,
+    flowId: `0x${'11'.repeat(32)}`,
+    stepIndex: 0,
+    input: {},
+    deadline: 0,
+  };
+
+  it('well-formed run ids are passed through', async () => {
+    const runId = `0x${'33'.repeat(32)}`;
+    const result = await handleInvoke(agent([runId]), body);
+    expect(result.status).toBe(200);
+    expect((result.body as Record<string, unknown>)['hiredRuns']).toEqual([runId]);
+  });
+
+  it('an agent that hired nobody reports an empty list', async () => {
+    const result = await handleInvoke(agent([]), body);
+    expect((result.body as Record<string, unknown>)['hiredRuns']).toEqual([]);
+  });
+
+  // A malformed run id is not something a verifier can look up, and recording
+  // it would put an unresolvable reference in the trace.
+  it('a malformed run id is refused', async () => {
+    const result = await handleInvoke(agent(['not-a-run']), body);
+    expect(result.status).toBe(500);
+    expect(JSON.stringify(result.body)).toMatch(/hiredRuns must be 32-byte run ids/);
+  });
+});

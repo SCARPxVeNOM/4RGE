@@ -168,6 +168,23 @@ export interface AgentResponse {
    * escrow will.
    */
   readonly outputSignature?: string | null;
+  /**
+   * Run ids this agent opened to get the job done — subcontractors it hired
+   * mid-job, rather than a sub-workflow its caller planned.
+   *
+   * This is a **disclosure, not a proof**. A `kind: 'flow'` step is opened by
+   * the executor, so its output *is* the child's on-chain result and a parent
+   * cannot claim work its child did not do. Here the agent is telling you
+   * where it went; anyone can name any run id. A verifier will check that each
+   * run named exists, is sealed and verifies in its own right — and will not
+   * pretend that proves this output came from them.
+   *
+   * Worth disclosing anyway: an agent that quietly calls three others produces
+   * one receipt for work four parties did, and nobody downstream can tell whom
+   * to credit. Saying so is the difference between a subcontractor and a
+   * ghostwriter.
+   */
+  readonly hiredRuns?: readonly string[] | null;
 }
 
 export interface AgentDefinition {
@@ -325,6 +342,20 @@ export async function handleInvoke(
       );
     }
 
+    const hiredRuns = (result.hiredRuns ?? []).map(String);
+    for (const runId of hiredRuns) {
+      if (!/^0x[0-9a-fA-F]{64}$/.test(runId)) {
+        // A malformed run id is not a run a verifier can look up, and
+        // recording it would put an unresolvable reference in the trace.
+        throw new AgentError(
+          `hiredRuns must be 32-byte run ids, got ${runId}`,
+          'bad-hired-run',
+          false,
+          500,
+        );
+      }
+    }
+
     return {
       status: 200,
       body: {
@@ -333,6 +364,7 @@ export async function handleInvoke(
         attestationBinding: binding === null ? null : { ...binding },
         attestationProvider: result.attestationProvider ?? null,
         outputSignature: signature,
+        hiredRuns,
       },
     };
   } catch (error) {

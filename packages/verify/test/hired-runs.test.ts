@@ -128,8 +128,18 @@ class World implements ChainSource, TraceSource {
   }
 
   /** Adds a single-step run and returns the root it seals to. */
-  addRun(runId: Hex, flowId: Hex, input: JsonValue, output: JsonValue, outcome = 0): Hex {
-    const t = trace(runId, 0, input, output);
+  addRun(
+    runId: Hex,
+    flowId: Hex,
+    input: JsonValue,
+    output: JsonValue,
+    outcome = 0,
+    hiredRuns: readonly string[] = [],
+  ): Hex {
+    const t = {
+      ...(trace(runId, 0, input, output) as Record<string, JsonValue>),
+      ...(hiredRuns.length === 0 ? {} : { hiredRuns: [...hiredRuns] }),
+    } as JsonValue;
     const traceRoot = hashJson(t) as Hex;
     this.traces.set(traceRoot.toLowerCase(), t);
 
@@ -376,3 +386,105 @@ describe('what does not count as hiring', () => {
 
 // Referenced so the helper is not dead code if a case is removed.
 void buildWorld;
+
+
+describe('runs an agent disclosed hiring', () => {
+  /// Unlike a sub-flow step, nothing ties the parent's output to these. The
+  /// agent is saying where it went, and anyone can name any run id. They are
+  /// still worth checking — and still tamper-evident, because the trace hashes
+  /// to the traceRoot the receipt anchors.
+  test('are verified and reported as disclosures', async () => {
+    const world = new World();
+    world.addRun(CHILD_RUN, CHILD_FLOW, { task: 'audit' }, { text: 'done' });
+    world.addRun(PARENT_RUN, PARENT_FLOW, { topic: 'x' }, { text: 'summary' }, 0, [CHILD_RUN]);
+
+    const report = await verify(world);
+
+    expect(world.asked).toContain(CHILD_RUN.toLowerCase());
+    expect(report.hired).toHaveLength(1);
+    expect(report.hired[0]!.kind).toBe('disclosed');
+    // No claim was made about the run's contents, so there is nothing to
+    // cross-check — and pretending otherwise would be the whole mistake.
+    expect(report.hired[0]!.claimedChainRoot).toBeNull();
+  });
+
+  /// A disclosed run that does not verify says something is wrong with that
+  /// run, not that this step's own evidence is bad. The parent never claimed
+  /// anything about its contents.
+  test('one that does not verify makes the parent incomplete, not failed', async () => {
+    const world = new World();
+    world.addRun(CHILD_RUN, CHILD_FLOW, { task: 'audit' }, { text: 'done' });
+    world.seals.set(CHILD_RUN.toLowerCase(), [
+      sealLog(CHILD_RUN, `0x${'77'.repeat(32)}` as Hex, 1, 0),
+    ]);
+    world.addRun(PARENT_RUN, PARENT_FLOW, { topic: 'x' }, { text: 'summary' }, 0, [CHILD_RUN]);
+
+    const report = await verify(world);
+
+    expect(report.verdict).toBe('incomplete');
+    expect(report.failures).toEqual([]);
+    expect(report.incomplete.join(' ')).toMatch(/disclosed run .* which does not verify/);
+  });
+
+  /// By contrast, a sub-flow the executor opened IS the parent's evidence.
+  test('a sub-flow that does not verify still fails the parent', async () => {
+    const world = new World();
+    const childRoot = world.addRun(CHILD_RUN, CHILD_FLOW, { task: 'audit' }, { text: 'done' });
+    world.seals.set(CHILD_RUN.toLowerCase(), [
+      sealLog(CHILD_RUN, `0x${'77'.repeat(32)}` as Hex, 1, 0),
+    ]);
+    world.addRun(
+      PARENT_RUN,
+      PARENT_FLOW,
+      { topic: 'x' },
+      hiredOutput(CHILD_RUN, childRoot) as unknown as JsonValue,
+    );
+
+    const report = await verify(world);
+    expect(report.verdict).toBe('failed');
+  });
+
+  test('a malformed disclosed run id is ignored', async () => {
+    const world = new World();
+    world.addRun(PARENT_RUN, PARENT_FLOW, { topic: 'x' }, { text: 'summary' }, 0, ['0xnope']);
+
+    const report = await verify(world);
+    expect(report.hired).toHaveLength(0);
+  });
+
+  /// A step that both hires a sub-flow and discloses the same run should not
+  /// verify it twice.
+  test('a run named both ways is followed once', async () => {
+    const world = new World();
+    const childRoot = world.addRun(CHILD_RUN, CHILD_FLOW, { task: 'audit' }, { text: 'done' });
+    world.addRun(
+      PARENT_RUN,
+      PARENT_FLOW,
+      { topic: 'x' },
+      hiredOutput(CHILD_RUN, childRoot) as unknown as JsonValue,
+      0,
+      [CHILD_RUN],
+    );
+
+    const report = await verify(world);
+    expect(report.hired).toHaveLength(1);
+    // The stronger reading wins: it really was opened as a sub-flow.
+    expect(report.hired[0]!.kind).toBe('subflow');
+  });
+
+  test('several disclosures are each verified', async () => {
+    const second = `0x${'55'.repeat(32)}` as Hex;
+    const world = new World();
+    world.addRun(CHILD_RUN, CHILD_FLOW, { task: 'a' }, { text: 'a' });
+    world.addRun(second, CHILD_FLOW, { task: 'b' }, { text: 'b' });
+    world.addRun(PARENT_RUN, PARENT_FLOW, { topic: 'x' }, { text: 'summary' }, 0, [
+      CHILD_RUN,
+      second,
+    ]);
+
+    const report = await verify(world);
+    expect(report.hired.map((h) => h.childRunId).sort()).toEqual(
+      [CHILD_RUN.toLowerCase(), second.toLowerCase()].sort(),
+    );
+  });
+});

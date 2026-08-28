@@ -493,6 +493,7 @@ async function runStep(args: RunStepArgs): Promise<StepOutcomeInternal> {
   let attestationBinding: ResponseSignature | null;
   let attestationProvider: Hex | null;
   let outputSignature: Hex | null;
+  let hiredRuns: readonly Hex[];
   let attempts: AttemptRecord[];
   try {
     const invocation = await invokeHttpAdapter(
@@ -519,6 +520,7 @@ async function runStep(args: RunStepArgs): Promise<StepOutcomeInternal> {
     attestationBinding = invocation.attestationBinding;
     attestationProvider = invocation.attestationProvider;
     outputSignature = invocation.outputSignature;
+    hiredRuns = invocation.hiredRuns;
     attempts = invocation.attempts;
   } catch (error) {
     const adapterError = error instanceof AdapterError ? error : null;
@@ -602,11 +604,11 @@ async function runStep(args: RunStepArgs): Promise<StepOutcomeInternal> {
   }
 
   const endedAtMs = now();
-  const trace = buildTrace(step, runId, resolvedInput, output, bundle, binding, attempts, null, startedAtMs, endedAtMs, {
-    signature: outputSignature,
-    registeredSigner: agentSigner,
-    valid: outputSignatureValid,
-  });
+  const trace = buildTrace(
+    step, runId, resolvedInput, output, bundle, binding, attempts, null, startedAtMs, endedAtMs,
+    { signature: outputSignature, registeredSigner: agentSigner, valid: outputSignatureValid },
+    hiredRuns,
+  );
   const { traceRoot } = await traces.put(trace as unknown as JsonValue);
 
   const status = decideStepStatus({
@@ -668,6 +670,7 @@ function buildTrace(
   startedAtMs: number,
   endedAtMs: number,
   identity: OutputIdentity | null = null,
+  hiredRuns: readonly string[] = [],
 ): ExecutionTrace {
   return {
     version: '0gflow/1',
@@ -701,6 +704,9 @@ function buildTrace(
     // executor's finding, recorded for the same reason and with the same
     // standing as the attestation level: readable, not authoritative.
     outputIdentity: identity,
+    // Recorded only when non-empty, so a trace from an agent that hired
+    // nobody is byte-identical to one written before this field existed.
+    ...(hiredRuns.length === 0 ? {} : { hiredRuns: [...hiredRuns] }),
     error,
   };
 }

@@ -23,6 +23,8 @@ export interface AgentError {
 export interface AgentResult {
   readonly output?: JsonValue;
   readonly attestation?: string | null;
+  /** Runs this agent opened to do the job. See the `delegates` agent. */
+  readonly hiredRuns?: readonly string[];
   readonly error?: AgentError;
   /** HTTP status to answer with; defaults to 200, or 500 when error is set. */
   readonly status?: number;
@@ -168,6 +170,39 @@ export const AGENTS: Agent[] = [
       // A perfectly good answer with no proof of who produced it. A step that
       // required an attestation must record status 3, never 0.
       return { output: { text: `Unverified summary: ${text}.` }, attestation: null };
+    },
+  },
+  {
+    id: 'delegates',
+    identity: identityFor('delegates', '107'),
+    description: 'Subcontracts the work and discloses the runs it hired.',
+    schema: {
+      input: { type: 'object', required: ['text'], properties: { text: { type: 'string' } } },
+      output: { type: 'object', required: ['text'], properties: { text: { type: 'string' } } },
+    },
+    invoke(input) {
+      const text = str(input['text'], 'text');
+
+      // A real delegating agent opens these runs itself, with the SDK, and
+      // returns the ids it got back. This one is told which to disclose,
+      // because the reference agents are deliberately offline and
+      // deterministic — they exist to make the *executor* observable, and an
+      // agent that needed chain credentials and a funded key would make them
+      // something else entirely.
+      //
+      // What is being demonstrated is the disclosure and what a verifier does
+      // with it, and that part is identical either way: the run ids land in
+      // the trace, the trace hashes into the receipt, and the verifier checks
+      // each run named.
+      const hiredRuns = (process.env['AGENT_HIRED_RUNS'] ?? '')
+        .split(',')
+        .map((id) => id.trim())
+        .filter((id) => id.length > 0);
+
+      return {
+        output: { text: `Delegated: ${text}.`, subcontractors: hiredRuns.length },
+        hiredRuns,
+      };
     },
   },
 ];

@@ -122,6 +122,7 @@ export function createAgentServer() {
           output: result.output,
           attestation: result.attestation ?? null,
           outputSignature,
+          hiredRuns: result.hiredRuns ?? [],
           meta: { durationMs: Date.now() - startedAt, agent: agent.id },
         });
       } catch (error) {

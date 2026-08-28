@@ -1,0 +1,16 @@
+{
+  "version": "0gflow/1",
+  "name": "delegating-flow",
+  "inputs": {
+    "topic": "the quarterly audit"
+  },
+  "steps": [
+    {
+      "id": "delegate",
+      "agent": "107",
+      "input": {
+        "text": "{{ inputs.topic }}"
+      }
+    }
+  ]
+}

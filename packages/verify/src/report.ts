@@ -161,17 +161,28 @@ export function renderReport(
   // only as good as the child run it points at.
   for (const child of report.hired) {
     lines.push('');
-    lines.push(`  Hired by step ${child.parentStepIndex}: run ${short(child.childRunId, 12)}`);
+    const how = child.kind === 'subflow' ? 'sub-flow' : 'disclosed by the agent';
+    lines.push(
+      `  Hired by step ${child.parentStepIndex}: run ${short(child.childRunId, 12)}  (${how})`,
+    );
     if (child.report === null) {
       lines.push(`      ${DASH} not verified: ${child.skipped ?? 'reason unrecorded'}`);
       continue;
     }
-    const rootsAgree =
-      child.report.sealedChainRoot !== null &&
-      child.report.sealedChainRoot.toLowerCase() === child.claimedChainRoot.toLowerCase();
-    lines.push(
-      `      ${rootsAgree ? TICK : CROSS} the parent's claimed root ${rootsAgree ? 'matches' : 'does NOT match'} what that run sealed`,
-    );
+
+    if (child.claimedChainRoot === null) {
+      // A disclosure makes no claim about the run's contents, so there is
+      // nothing to cross-check. Saying that plainly is the point: verifying
+      // the run proves it happened, not that this output came from it.
+      lines.push(`      ${DASH} the agent says it hired this run; nothing ties this output to it`);
+    } else {
+      const rootsAgree =
+        child.report.sealedChainRoot !== null &&
+        child.report.sealedChainRoot.toLowerCase() === child.claimedChainRoot.toLowerCase();
+      lines.push(
+        `      ${rootsAgree ? TICK : CROSS} the parent's claimed root ${rootsAgree ? 'matches' : 'does NOT match'} what that run sealed`,
+      );
+    }
     lines.push(
       `      ${child.report.verdict === 'verified' ? TICK : child.report.verdict === 'failed' ? CROSS : '?'} ${child.report.verdict.toUpperCase()} — ${child.report.stepCount} step(s)`,
     );

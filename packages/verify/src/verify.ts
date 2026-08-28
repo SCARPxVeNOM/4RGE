@@ -216,8 +216,23 @@ export type IdentityState =
 export interface HiredRunCheck {
   readonly parentStepIndex: number;
   readonly childRunId: Hex;
-  /** The chain root the parent's output claims the child sealed. */
-  readonly claimedChainRoot: Hex;
+  /**
+   * How this run came to be named, and therefore how much it proves.
+   *
+   *   subflow    the executor opened it as a `kind: 'flow'` step, and the
+   *              parent's output IS the child's on-chain result — so the
+   *              claim can be checked against the child's own seal
+   *   disclosed  the agent said it hired this run. Anyone can name any run
+   *              id; verifying it proves that run happened, not that this
+   *              output came from it.
+   */
+  readonly kind: 'subflow' | 'disclosed';
+  /**
+   * The chain root the parent's output claims the child sealed. Null for a
+   * disclosure, which makes no such claim — and there is therefore nothing to
+   * cross-check.
+   */
+  readonly claimedChainRoot: Hex | null;
   /** The full report for the child, or null when it was not verified. */
   readonly report: VerificationReport | null;
   /** Why the child was not verified, when it was not. */
@@ -309,7 +324,12 @@ export async function verifyRun(options: VerifyOptions): Promise<VerificationRep
   const maxHireDepth = options.maxHireDepth ?? 3;
   const failures: string[] = [];
   const incomplete: string[] = [];
-  const hiredClaims: { stepIndex: number; childRunId: Hex; chainRoot: Hex }[] = [];
+  const hiredClaims: {
+    stepIndex: number;
+    childRunId: Hex;
+    chainRoot: Hex | null;
+    kind: 'subflow' | 'disclosed';
+  }[] = [];
 
   // --- Step 1: receipts and seal from chain logs -------------------------
   const stepLogs = await chain.getStepAnchoredLogs(runId);
@@ -446,7 +466,22 @@ export async function verifyRun(options: VerifyOptions): Promise<VerificationRep
         // checks finish before any recursion.
         const claim = readHiredClaim(trace.output);
         if (claim !== null) {
-          hiredClaims.push({ stepIndex: receipt.stepIndex, ...claim });
+          hiredClaims.push({ stepIndex: receipt.stepIndex, kind: 'subflow', ...claim });
+        }
+
+        // Runs the agent disclosed. Weaker than a sub-flow step and treated as
+        // such — checked, reported, and never used to conclude that this
+        // output came from them.
+        for (const disclosed of trace.hiredRuns ?? []) {
+          if (!/^0x[0-9a-fA-F]{64}$/.test(disclosed)) continue;
+          const runId = disclosed.toLowerCase() as Hex;
+          if (hiredClaims.some((c) => c.childRunId === runId)) continue;
+          hiredClaims.push({
+            stepIndex: receipt.stepIndex,
+            childRunId: runId,
+            chainRoot: null,
+            kind: 'disclosed',
+          });
         }
 
         // Step 5: attestation.
@@ -615,6 +650,7 @@ export async function verifyRun(options: VerifyOptions): Promise<VerificationRep
       hired.push({
         parentStepIndex: claim.stepIndex,
         childRunId: claim.childRunId,
+        kind: claim.kind,
         claimedChainRoot: claim.chainRoot,
         report: null,
         skipped: 'the hired-run depth limit was reached, so this child was not verified',
@@ -634,13 +670,14 @@ export async function verifyRun(options: VerifyOptions): Promise<VerificationRep
         // declared inline in the parent, so this is the same document — and
         // the child's inputs are exactly the parent step's resolved input,
         // which is in the evidence already gathered above.
-        spec: childSpecFor(spec, evidence, claim.stepIndex),
+        spec: claim.kind === 'subflow' ? childSpecFor(spec, evidence, claim.stepIndex) : null,
         maxHireDepth: maxHireDepth - 1,
       });
     } catch (error) {
       hired.push({
         parentStepIndex: claim.stepIndex,
         childRunId: claim.childRunId,
+        kind: claim.kind,
         claimedChainRoot: claim.chainRoot,
         report: null,
         skipped: (error as Error).message,
@@ -654,6 +691,7 @@ export async function verifyRun(options: VerifyOptions): Promise<VerificationRep
     hired.push({
       parentStepIndex: claim.stepIndex,
       childRunId: claim.childRunId,
+      kind: claim.kind,
       claimedChainRoot: claim.chainRoot,
       report,
       skipped: null,
@@ -664,6 +702,7 @@ export async function verifyRun(options: VerifyOptions): Promise<VerificationRep
     // it is a parent that anchored a claim about a child run the chain does
     // not support. That is a failure, not an unknown.
     if (
+      claim.chainRoot !== null &&
       report.sealedChainRoot !== null &&
       report.sealedChainRoot.toLowerCase() !== claim.chainRoot.toLowerCase()
     ) {
@@ -676,9 +715,16 @@ export async function verifyRun(options: VerifyOptions): Promise<VerificationRep
         `step ${claim.stepIndex} hired run ${claim.childRunId}, which is not sealed on chain, so its result cannot be confirmed`,
       );
     }
-    if (report.verdict === 'failed') {
+    if (report.verdict === 'failed' && claim.kind === 'subflow') {
       failures.push(
         `step ${claim.stepIndex} hired run ${claim.childRunId}, which does not verify: ${report.failures[0] ?? 'see its own report'}`,
+      );
+    } else if (report.verdict === 'failed') {
+      // A disclosed run that does not verify says something is wrong with
+      // that run, not that this step's own evidence is bad. The parent never
+      // claimed anything about its contents — only that it went there.
+      incomplete.push(
+        `step ${claim.stepIndex} disclosed run ${claim.childRunId}, which does not verify: ${report.failures[0] ?? 'see its own report'}`,
       );
     } else if (report.verdict === 'incomplete') {
       // A parent whose child could not be fully checked is itself not fully

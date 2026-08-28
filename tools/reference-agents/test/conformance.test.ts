@@ -152,6 +152,7 @@ describe('each agent proves its own identity', () => {
     score: { report: 'no critical findings' },
     publish: { body: 'body text', grade: 90 },
     'never-attests': { text: 'a report' },
+    delegates: { text: 'a report' },
   };
 
   test.each(producers.map((a) => [a.id, a] as const))(

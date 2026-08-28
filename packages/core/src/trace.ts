@@ -81,6 +81,19 @@ export interface ExecutionTrace {
     readonly registeredSigner: string | null;
     readonly valid: boolean;
   } | null;
+  /**
+   * Runs the agent said it opened to do this job.
+   *
+   * A disclosure, not a proof. A `kind: 'flow'` step is opened by the executor
+   * and its output *is* the child's on-chain result, so the claim can be
+   * checked. This is the agent telling you where it went, and anyone can name
+   * any run id — a verifier checks each run exists and verifies, and stops
+   * short of concluding that this output came from them.
+   *
+   * It is still tamper-evident: the trace hashes to `traceRoot`, which the
+   * receipt anchors, so nobody can add or remove entries after the fact.
+   */
+  readonly hiredRuns?: readonly string[];
   readonly error?: string | null;
 }
 

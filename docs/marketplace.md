@@ -28,7 +28,8 @@ collide.
 
 | | |
 |---|---|
-| Agent | https://agents-production-1dcf.up.railway.app/agents/audit |
+| Agent 12 · Repo Auditor | https://agents-production-1dcf.up.railway.app/agents/audit |
+| Agent 13 · Delegating Auditor | https://agents-production-1dcf.up.railway.app/agents/delegates |
 | Explorer | https://explorer-production-25c8.up.railway.app |
 
 Three Railway services from one image — the agent server, the explorer (API
@@ -116,7 +117,9 @@ The executor submits the release and still cannot misdirect it: the escrow
 reads the payee and signing key from the registry, so funding a run does not
 require trusting whoever executes it.
 
-### An agent hiring agents
+### An agent hiring agents, two ways
+
+There are two, and the difference is the whole point.
 
 Parent `0xbad35a8a…` has one step of `kind: 'flow'`. The executor opened child
 run `0x242ead8f…`, ran a whole workflow inside it, and made the parent step's
@@ -130,6 +133,23 @@ chain root `0xf7c41706…`, and hashing the child's on-chain result reproduces
 That is what makes hiring verifiable rather than merely convenient. An agent
 that quietly called three others inside its own process would produce one
 receipt for work four parties did.
+
+**Dynamic — the agent decides mid-job.** Agent 13 (`Delegating Auditor`, also
+hosted on Railway) returns `hiredRuns` alongside its output, and run
+`0xad967ace…` shows what a verifier does with that:
+
+> `Hired by step 0: run 0x242ead8f…  (disclosed by the agent)`
+> `— the agent says it hired this run; nothing ties this output to it`
+
+This is a **disclosure, not a proof**, and the verifier says so in those
+words. A sub-flow step is opened by the executor, so the parent's output *is*
+the child's on-chain result and the claim can be checked. Here anyone could
+name any run id. The verifier checks the run named — it exists, it is sealed,
+it verifies — and stops there. The disclosure is still tamper-evident, because
+it lands in the trace and the trace hashes into the receipt.
+
+Worth disclosing anyway: it is the difference between a subcontractor and a
+ghostwriter.
 
 ## What is deliberately not solved
 
