@@ -1,0 +1,96 @@
+{
+  "scenario": "success",
+  "description": "four steps with a parallel branch; every step succeeds",
+  "network": "aristotle",
+  "chainId": 16661,
+  "runId": "0xd57a33da3eb401e06f18feaf23d6eccf07f56b6b01ed3e2823f44505a535edea",
+  "flowId": "0x24679bb37fc811105672a317cedd1be9f15b3fa74dde2f5401fff154a78c7e5d",
+  "chainRoot": "0x4a2d81a9092fc34dfb933ed52f9c6c5d12d82a12d512680caa684f5894c2a043",
+  "outcome": 0,
+  "succeeded": true,
+  "executor": "0x3274E860FA4d3372bD120b61367a7555713417A8",
+  "spec": {
+    "steps": [
+      {
+        "id": "audit",
+        "agent": "2",
+        "input": {
+          "repo": "{{ inputs.repoUrl }}"
+        }
+      },
+      {
+        "id": "summarize",
+        "agent": "3",
+        "needs": [
+          "audit"
+        ],
+        "input": {
+          "text": "{{ steps.audit.output.report }}"
+        }
+      },
+      {
+        "id": "score",
+        "agent": "4",
+        "needs": [
+          "audit"
+        ],
+        "input": {
+          "report": "{{ steps.audit.output.report }}"
+        }
+      },
+      {
+        "id": "publish",
+        "agent": "5",
+        "needs": [
+          "summarize",
+          "score"
+        ],
+        "input": {
+          "body": "{{ steps.summarize.output.text }}",
+          "grade": "{{ steps.score.output.value }}"
+        }
+      }
+    ]
+  },
+  "runInputs": {
+    "repoUrl": "https://github.com/0glabs/0g-chain"
+  },
+  "stepResults": [
+    {
+      "stepId": "audit",
+      "stepIndex": 0,
+      "status": 0,
+      "statusName": "ok",
+      "traceRoot": "0x5a8673d850ef7f0ea2f2c1c058e81d2ddcfe6b26b59a0f4363fae887ff022bb9",
+      "txHash": "0xcfdcfda6c50253ed63e79ee85817f5dcaf0da5ce3ac09724dcec5a5c9654624b",
+      "error": null
+    },
+    {
+      "stepId": "summarize",
+      "stepIndex": 1,
+      "status": 0,
+      "statusName": "ok",
+      "traceRoot": "0x31122d07644aece0ddb1326dadb958c1efde4740d3240e82161339dd5c49b7ad",
+      "txHash": "0x5c2870a6f0f853b52d5e7c0ed549d183cb8b201d708be17abddb8deadeb926a6",
+      "error": null
+    },
+    {
+      "stepId": "score",
+      "stepIndex": 2,
+      "status": 0,
+      "statusName": "ok",
+      "traceRoot": "0x4a414d4671ba461a481c9b4065404aaf7a3047bcaaba2800d047b16034993419",
+      "txHash": "0xff325197e9ae2e418620763d9562330af23f0f17c55bc7cfa8ac703666e191b2",
+      "error": null
+    },
+    {
+      "stepId": "publish",
+      "stepIndex": 3,
+      "status": 0,
+      "statusName": "ok",
+      "traceRoot": "0x93164d4eacbaa2949befbe70008694e207d5534611b5f969dd5e6545133f1ba1",
+      "txHash": "0x93b62d2300791961babdf6a807df8352c8f6f4c871dd43271828bd03fad4f29f",
+      "error": null
+    }
+  ]
+}

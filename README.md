@@ -71,10 +71,50 @@ because its `mint` is `onlyOwner` — no stranger could list an agent, which is
 the entire premise. The full argument, including why this is not a rejection of
 ERC-7857, is in [`docs/0g-integration.md`](docs/0g-integration.md).
 
-**First agent published on mainnet:** agent `1`, listed in transaction
-[`0x305bbb31…`](https://chainscan.0g.ai/tx/0x305bbb3130879d3c22a66a1c5675b426247e340aef8b9743652a6e14d3eec7cd),
-with its schema stored on 0G Storage at
-`0xcf0c701ed2020bddd75150ed1461d4fb58f48f6a80aeec45317ae5432bf26641`.
+### Agents listed on mainnet
+
+Each published itself permissionlessly: an identity minted, its JSON Schema
+written to 0G Storage, and its listing registered — only after passing the
+adapter conformance suite.
+
+| Agent | Signing key | Endpoint |
+|---|---|---|
+| 1 · Repo Auditor | `0x8559E76E…` | `/agents/audit` |
+| 2 · Repo auditor | `0xdEa0d514…` | `/agents/audit` |
+| 3 · Summariser | `0x3FFCEb7C…` | `/agents/summarize` |
+| 4 · Scorer | `0xDa5568F2…` | `/agents/score` |
+| 5 · Publisher | `0xDF0A5525…` | `/agents/publish` |
+
+### A run, anchored and verified on mainnet
+
+```
+runId       0xd57a33da3eb401e06f18feaf23d6eccf07f56b6b01ed3e2823f44505a535edea
+chain root  0x4a2d81a9092fc34dfb933ed52f9c6c5d12d82a12d512680caa684f5894c2a043
+outcome     0 (ok) · 4 steps · 4 distinct agents
+```
+
+Check it yourself — this reads 0G and nothing else:
+
+```sh
+ZG_NETWORK=aristotle npx @0gflow/verify   0xd57a33da3eb401e06f18feaf23d6eccf07f56b6b01ed3e2823f44505a535edea
+```
+
+```
+  [0] audit      id ✓  trace ✓  hashes ✓   signed ✓ by agent 2
+  [1] summarize  id ✓  trace ✓  hashes ✓   signed ✓ by agent 3
+  [2] score      id ✓  trace ✓  hashes ✓   signed ✓ by agent 4
+  [3] publish    id ✓  trace ✓  hashes ✓   signed ✓ by agent 5
+
+  Linkage      ✓   4/4 inputs derive from declared upstream outputs
+  Chain root   ✓   0x4a2d81… matches on-chain seal
+  Outcome      ✓   success
+
+  VERIFIED — 4 steps · 4 agents
+```
+
+Every step is signed by a *different* key, and each one recovers to the address
+that agent registered on chain. That is the difference between a receipt naming
+an agent and a receipt proving one.
 
 ---
 
