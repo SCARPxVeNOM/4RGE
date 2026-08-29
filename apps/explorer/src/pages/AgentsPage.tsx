@@ -168,7 +168,10 @@ export function AgentsPage() {
           <Stat label="With a record" value={count(counts.proven)} note="have run at least one step" />
           <Stat
             label="Total bonded"
-            value={og(totalBonded)}
+            // `og(0)` renders "free", which is right for a price and wrong for
+            // a stake: agents with nothing at risk have not generously waived
+            // a fee. Same fix as the agent page.
+            value={totalBonded === 0n ? 'none' : og(totalBonded)}
             accent={totalBonded > 0n}
             note="agents' own money at risk"
           />
