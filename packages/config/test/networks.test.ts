@@ -28,16 +28,68 @@ describe('Galileo testnet', () => {
 });
 
 describe('Aristotle mainnet', () => {
-  test('is present but explicitly unresolved', () => {
-    // §12: the migration path is defined, but the chain id, RPC and indexer
-    // must be confirmed rather than assumed. Shipping a guessed mainnet
-    // endpoint is how funds go to the wrong chain.
-    expect(ARISTOTLE.resolved).toBe(false);
+  // These two tests used to assert the opposite: that Aristotle was
+  // unresolved and refused use. That guard existed so a *guessed* mainnet
+  // endpoint could never carry real funds, and it did its job — every value
+  // below was confirmed against the live chain before being written. What the
+  // tests must now guard is that the confirmed values stay confirmed.
+
+  test('is resolved, and every endpoint is actually filled in', () => {
+    expect(ARISTOTLE.resolved).toBe(true);
+    expect(ARISTOTLE.chainId).toBe(16661);
+    expect(ARISTOTLE.rpcUrl).toBe('https://evmrpc.0g.ai');
+    expect(ARISTOTLE.explorerUrl).toBe('https://chainscan.0g.ai');
+    expect(ARISTOTLE.storageIndexerUrl).toBe('https://indexer-storage-turbo.0g.ai');
+    // An empty string is falsy and would sail through a truthiness check while
+    // producing a request to nowhere.
+    for (const url of [ARISTOTLE.rpcUrl, ARISTOTLE.explorerUrl, ARISTOTLE.storageIndexerUrl]) {
+      expect(url).toMatch(/^https:\/\/\S+$/);
+    }
   });
 
-  test('refuses to be used until its values are confirmed', () => {
-    expect(() => requireResolved(ARISTOTLE)).toThrow(ConfigError);
-    expect(() => requireResolved(ARISTOTLE)).toThrow(/confirm/i);
+  test('carries the mainnet deployment', () => {
+    expect(ARISTOTLE.contracts.executionReceiptsV2).toBe(
+      '0xC93BFC19a69248EefbF74F92961D49DE302E6174',
+    );
+    expect(ARISTOTLE.contracts.agentAdapterRegistryV2).toBe(
+      '0xFb4AE891dafD88998dDfa76a0417238a60ea9374',
+    );
+    expect(ARISTOTLE.contracts.flowEscrowV2).toBe('0xC2cA8fde0575FbFf83Dd98F38B1Ee19e1B6B8DE9');
+    expect(ARISTOTLE.contracts.agentReputation).toBe('0x0B919E17e9433B824867B351037d7b7c416aD6Fe');
+    expect(ARISTOTLE.contracts.flowRegistry).toBe('0x41660B0216Bb13388f5622e9d2550F543C5F265e');
+    expect(ARISTOTLE.deploymentBlockV2).toBe(42941679);
+  });
+
+  test('uses our own permissionless identity registry, not the Galileo one', () => {
+    // There is no code at the Galileo ERC-8004 address on mainnet. Pointing
+    // there would make every publish revert with something unhelpful.
+    expect(ARISTOTLE.contracts.identityRegistry).toBe(
+      '0x048E54685269dCda692122F5d9562F779810682A',
+    );
+    expect(ARISTOTLE.contracts.identityRegistry).not.toBe(GALILEO.contracts.identityRegistry);
+  });
+
+  test('points at the 0G InferenceServing contract for attestation', () => {
+    // Theirs, not ours, and different per chain — the TEE trust anchor is 0G's
+    // registry, so getting this wrong would silently fail every bound step.
+    expect(ARISTOTLE.contracts.inferenceServing).toBe(
+      '0x47340d900bdFec2BD393c626E12ea0656F938d84',
+    );
+    expect(ARISTOTLE.contracts.inferenceServing).not.toBe(GALILEO.contracts.inferenceServing);
+  });
+
+  test('can now be used', () => {
+    expect(requireResolved(ARISTOTLE)).toBe(ARISTOTLE);
+  });
+
+  test('and Galileo is still a different chain entirely', () => {
+    // The bug this catches is a copy-paste that leaves mainnet pointing at
+    // testnet contracts, which would look completely normal until judged.
+    expect(ARISTOTLE.chainId).not.toBe(GALILEO.chainId);
+    expect(ARISTOTLE.rpcUrl).not.toBe(GALILEO.rpcUrl);
+    expect(ARISTOTLE.contracts.executionReceiptsV2).not.toBe(
+      GALILEO.contracts.executionReceiptsV2,
+    );
   });
 
   test('does not block use of a resolved network', () => {

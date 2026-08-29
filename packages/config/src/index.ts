@@ -175,28 +175,59 @@ export const GALILEO: Network = {
 /**
  * 0G Aristotle Mainnet — §12.
  *
- * Deliberately unresolved. Contracts deploy via CREATE2 with a fixed salt, so
- * addresses carry across unchanged, but the chain id, RPC endpoint and storage
- * indexer URL must each be confirmed against the live network first. A guessed
- * mainnet endpoint is how real funds reach the wrong chain, so this network
- * refuses use until someone fills it in deliberately.
+ * Every value below was confirmed against the live network before being
+ * written here, as this block previously demanded:
+ *
+ *   chainId 16661        eth_chainId returned 0x4115
+ *   rpcUrl               eth_chainId, eth_getBalance and eth_call all answer
+ *   explorerUrl          HTTP 200
+ *   storageIndexerUrl    answers JSON-RPC
+ *
+ * The identity registry is OURS on this chain, and that is the one real
+ * difference from Galileo. There is no code at the Galileo ERC-8004 address
+ * (0x7177a686…) on mainnet, and 0G's Agentic ID cannot substitute because its
+ * mint is onlyOwner — no stranger could list an agent, which is the whole
+ * premise. `AgentIdentityRegistry` is the permissionless ERC-8004-shaped
+ * registry deployed to fill that gap; its `register(string)` selector is
+ * byte-identical to Galileo's, so publishing needs no branch per chain.
+ *
+ * `agenticIdRegistry` is null here because 0G has not published a mainnet
+ * address for Agentic ID. Null means "not known", not "does not exist" — the
+ * adapter registry accepts any uint256-keyed ERC-721, so it can be filled in
+ * later without touching anything else.
  */
 export const ARISTOTLE: Network = {
   name: 'aristotle',
   displayName: '0G Aristotle Mainnet',
-  chainId: 0,
-  rpcUrl: '',
-  explorerUrl: '',
+  chainId: 16661,
+  rpcUrl: 'https://evmrpc.0g.ai',
+  explorerUrl: 'https://chainscan.0g.ai',
   faucetUrl: null,
   nativeToken: '0G',
-  storageIndexerUrl: '',
+  storageIndexerUrl: 'https://indexer-storage-turbo.0g.ai',
   computeBrokerUrl: null,
-  resolved: false,
-  unresolvedReason:
-    'confirm the Aristotle chain id, RPC endpoint and storage indexer URL, and check whether the ERC-8004 registries are already deployed at their canonical addresses, before enabling this network (spec §12)',
-  contracts: NO_CONTRACTS,
-  deploymentBlock: null,
-  deploymentBlockV2: null,
+  resolved: true,
+  contracts: {
+    flowRegistry: '0x41660B0216Bb13388f5622e9d2550F543C5F265e',
+    executionReceipts: null,
+    agentAdapterRegistry: null,
+    flowEscrow: null,
+    executionReceiptsV2: '0xC93BFC19a69248EefbF74F92961D49DE302E6174',
+    agentAdapterRegistryV2: '0xFb4AE891dafD88998dDfa76a0417238a60ea9374',
+    flowEscrowV2: '0xC2cA8fde0575FbFf83Dd98F38B1Ee19e1B6B8DE9',
+    agentReputation: '0x0B919E17e9433B824867B351037d7b7c416aD6Fe',
+    identityRegistry: '0x048E54685269dCda692122F5d9562F779810682A',
+    agenticIdRegistry: null,
+    reputationRegistry: null,
+    // 0G's own InferenceServing, not ours. Taken from the compute SDK's
+    // CONTRACT_ADDRESSES.mainnet and confirmed to have code at that address
+    // before being written here — the same discipline the rest of this block
+    // was held to.
+    inferenceServing: '0x47340d900bdFec2BD393c626E12ea0656F938d84',
+  },
+  // v1 was never deployed here: mainnet starts at the marketplace contracts.
+  deploymentBlock: 42941679,
+  deploymentBlockV2: 42941679,
 };
 
 const NETWORKS: Readonly<Record<NetworkName, Network>> = {
