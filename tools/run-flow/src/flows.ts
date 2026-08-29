@@ -20,28 +20,49 @@ export interface Scenario {
   readonly expect: string;
 }
 
+/**
+ * The identity a step's agent claims, per step id.
+ *
+ * Every step used to say `agent: '1'`. That is the same impersonation the
+ * reference agents' own identity file was written to stop -- six agents all
+ * claiming one person's token -- just moved out of the agents and into the
+ * spec. It stayed invisible on a chain where nobody had registered a signer,
+ * and became visible the moment one was: four steps signed by four different
+ * keys, all claiming agent 1, and the verifier refusing every one of them.
+ *
+ * So the id comes from the environment, per agent, exactly as the reference
+ * agents read AGENT_ID_<NAME> for the id they sign with. The two must agree:
+ * the agent signs a digest containing its id, and the verifier recomputes that
+ * digest from the id on the receipt. Disagree and recovery yields a stranger's
+ * address rather than an error, which is a genuinely confusing way to fail.
+ *
+ * Falls back to '1' so a local run with nothing configured behaves as before.
+ */
+const agentId = (name: string): string =>
+  process.env[`AGENT_ID_${name.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}`] ?? '1';
+
 /** audit → (summarize ‖ score) → publish. The parallel branch §11 asks for. */
 const DIAMOND: FlowSpec = {
   version: '0gflow/1',
   name: 'audit-summarize-publish',
   inputs: { repoUrl: { type: 'string' } },
   steps: [
-    { id: 'audit', agent: '1', input: { repo: '{{ inputs.repoUrl }}' } },
+    { id: 'audit', agent: agentId('audit'), input: { repo: '{{ inputs.repoUrl }}' } },
     {
       id: 'summarize',
-      agent: '1',
+      agent: agentId('summarize'),
       needs: ['audit'],
       input: { text: '{{ steps.audit.output.report }}' },
     },
     {
       id: 'score',
-      agent: '1',
+      agent: agentId('score'),
       needs: ['audit'],
       input: { report: '{{ steps.audit.output.report }}' },
     },
     {
       id: 'publish',
-      agent: '1',
+      agent: agentId('publish'),
       needs: ['summarize', 'score'],
       input: { body: '{{ steps.summarize.output.text }}', grade: '{{ steps.score.output.value }}' },
     },
@@ -55,10 +76,10 @@ const REQUIRES_ATTESTATION: FlowSpec = {
   name: 'audit-summarize-attested',
   inputs: { repoUrl: { type: 'string' } },
   steps: [
-    { id: 'audit', agent: '1', input: { repo: '{{ inputs.repoUrl }}' } },
+    { id: 'audit', agent: agentId('audit'), input: { repo: '{{ inputs.repoUrl }}' } },
     {
       id: 'summarize',
-      agent: '1',
+      agent: agentId('summarize'),
       needs: ['audit'],
       requireAttestation: true,
       input: { text: '{{ steps.audit.output.report }}' },
@@ -72,16 +93,16 @@ const FAILING: FlowSpec = {
   name: 'audit-fail-publish',
   inputs: { repoUrl: { type: 'string' } },
   steps: [
-    { id: 'audit', agent: '1', input: { repo: '{{ inputs.repoUrl }}' } },
+    { id: 'audit', agent: agentId('audit'), input: { repo: '{{ inputs.repoUrl }}' } },
     {
       id: 'review',
-      agent: '1',
+      agent: agentId('review'),
       needs: ['audit'],
       input: { text: '{{ steps.audit.output.report }}' },
     },
     {
       id: 'publish',
-      agent: '1',
+      agent: agentId('publish'),
       needs: ['review'],
       input: { body: '{{ steps.review.output.text }}', grade: 1 },
     },
@@ -101,10 +122,10 @@ const REQUIRES_BINDING: FlowSpec = {
   name: 'audit-summarize-bound',
   inputs: { repoUrl: { type: 'string' } },
   steps: [
-    { id: 'audit', agent: '1', input: { repo: '{{ inputs.repoUrl }}' } },
+    { id: 'audit', agent: agentId('audit'), input: { repo: '{{ inputs.repoUrl }}' } },
     {
       id: 'summarize',
-      agent: '1',
+      agent: agentId('summarize'),
       needs: ['audit'],
       requireAttestation: true,
       requireBinding: 'bound',

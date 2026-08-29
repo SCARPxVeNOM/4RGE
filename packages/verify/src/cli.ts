@@ -8,7 +8,7 @@
 import { mkdtempSync, copyFileSync, readdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { GALILEO, requireAddress, type Network } from '@0gflow/config';
+import { networkFromEnv, requireAddress, type Network } from '@0gflow/config';
 import { canonicalize, type Hex, type JsonValue } from '@0gflow/core';
 import {
   FallbackTraceSource,
@@ -247,10 +247,24 @@ export async function main(argv: readonly string[]): Promise<number> {
     return 2;
   }
 
-  const network = GALILEO;
-  const contract = (args.contract ?? requireAddress(network, 'executionReceipts')) as Hex;
+  /*
+   * ZG_NETWORK, defaulting to Galileo. Every value below then follows from it.
+   *
+   * This used to be hardcoded, and the failure was not a wrong answer -- it
+   * was `eth_getLogs: invalid block range (from block larger than to block)`,
+   * because Galileo's deployment block is 50.3M and Aristotle's head is 42.9M.
+   * A verifier that cannot say which chain it is reading is not a verifier.
+   */
+  const network = networkFromEnv();
+  const contract = (args.contract ??
+    network.contracts.executionReceipts ??
+    requireAddress(network, 'executionReceiptsV2')) as Hex;
   const registry = (args.registry ?? network.contracts.identityRegistry) as Hex | null;
-  const fromBlock = BigInt(args.fromBlock ?? network.deploymentBlock ?? 0);
+  // v2's block where v1 was never deployed, so the scan starts where the
+  // contracts actually exist rather than at zero.
+  const fromBlock = BigInt(
+    args.fromBlock ?? network.deploymentBlock ?? network.deploymentBlockV2 ?? 0,
+  );
   const adapters = (args.adapters ?? network.contracts.agentAdapterRegistryV2 ?? null) as Hex | null;
 
   let spec: SpecForLinkage | null = null;
