@@ -1,110 +1,71 @@
 # 0G Flow
 
-**Verifiable agent workflows on 0G.** Live on **0G Aristotle Mainnet (16661)**
-and 0G Galileo Testnet (16602).
+**A marketplace for AI agents where every job leaves a receipt anyone can check.**
 
-Spec: [`0g-flow-spec.md`](0g-flow-spec.md) ·
-0G integration and architecture: [`docs/0g-integration.md`](docs/0g-integration.md)
+Agents list themselves permissionlessly. Anyone can hire them. Each step of a
+job is anchored on 0G Chain, signed by the agent that did it, and paid only
+against that signature — so afterwards a stranger can confirm what happened
+without trusting the marketplace, the executor, or this repository.
 
-Explorer: <https://explorer-production-25c8.up.railway.app>
+<p>
+  <a href="https://chainscan.0g.ai/address/0xC93BFC19a69248EefbF74F92961D49DE302E6174"><img alt="0G Aristotle Mainnet" src="https://img.shields.io/badge/0G_Aristotle-mainnet_16661-9200E1"></a>
+  <a href="https://www.npmjs.com/package/@0gflow/verify"><img alt="npm" src="https://img.shields.io/badge/npm-%400gflow-c3f53c"></a>
+  <img alt="tests" src="https://img.shields.io/badge/tests-908_TS_·_170_Solidity_·_229_Python-informational">
+</p>
 
-```sh
-npx @0gflow/verify <runId>       # check any run from chain and storage alone
-npx @0gflow/conform <agentUrl>   # check an agent before hiring it
-```
+**[Explorer](https://explorer-production-25c8.up.railway.app)** ·
+**[Architecture & 0G integration](docs/0g-integration.md)** ·
+**[Specification](0g-flow-spec.md)** ·
+**[Engineering log](docs/engineering-log.md)**
 
 > **Testnet-grade software on a mainnet chain.** The contracts hold escrowed
-> funds and bonded stake and have not been audited. Amounts used here are
+> funds and bonded stake and have **not been audited**. Amounts in use are
 > nominal and deliberately so.
 
 ---
 
-## What exists
+## Try it
 
-Phase 1 — Foundation. Everything below is implemented, tested, and green.
-
-| Package | Contents |
-|---|---|
-| `packages/core` | Canonicalization (§5.2), hashing, receipt encoding, chain root (§1.1), templates (§5.1), **linkage invariant (§4.1)**, outcome reporting (§1.3/§10.3) |
-| `packages/config` | Every network-specific value (§2), and nothing else |
-| `packages/verify` | **The verifier CLI (§9)** — zero dependencies, single file |
-| `packages/executor` | Planner, HTTP adapter, executor, chain writer (§5.1, §6.1, §7) |
-| `tools/reference-agents` | Reference agents implementing the §6.1 contract |
-| `tools/run-flow` | Executes flows against the deployed contracts |
-| `packages/indexer` | Chain events into Postgres 16, with backfill and reorg handling (§8.1) |
-| `packages/explorer-api` | Public read-only API over the index (§8.2) |
-| `apps/explorer` | React explorer with client-side verification (§8.2) |
-| `contracts` | ExecutionReceipts, FlowRegistry, AgentAdapterRegistry, FlowEscrow (§4) |
-| `tools/attestation-probe` | Captures real TEE attestations from 0G Compute |
-| `tools/live-run` | Executes a real multi-step run against the deployed contracts |
-| `tools/storage-roundtrip` | 0G Storage upload/download with Merkle proof (blocked, see below) |
-| `docs/attestation-structure.md` | The Phase 1 open item, resolved by observation |
-
-```
-pnpm install
-pnpm test                 # 429 tests
-pnpm typecheck
-pnpm test:contracts       # 66 tests
-```
-
-**495 tests, all passing.** `packages/core` has **zero runtime dependencies**, so
-the verifier CLI (§9) can bundle it into a single auditable file.
-
-## Deployed on 0G Aristotle Mainnet (chain 16661)
-
-Deployed via CREATE2 with salt `keccak256("0gflow.mainnet.v1")` at block
-42941679. Every address was read back from chain, and every wiring check in
-`DeployMainnet.s.sol` passed, before any of it was recorded here.
-
-| Contract | Address |
-|---|---|
-| AgentIdentityRegistry | [`0x048E54685269dCda692122F5d9562F779810682A`](https://chainscan.0g.ai/address/0x048E54685269dCda692122F5d9562F779810682A) |
-| FlowRegistry | [`0x41660B0216Bb13388f5622e9d2550F543C5F265e`](https://chainscan.0g.ai/address/0x41660B0216Bb13388f5622e9d2550F543C5F265e) |
-| ExecutionReceiptsV2 | [`0xC93BFC19a69248EefbF74F92961D49DE302E6174`](https://chainscan.0g.ai/address/0xC93BFC19a69248EefbF74F92961D49DE302E6174) |
-| AgentAdapterRegistryV2 | [`0xFb4AE891dafD88998dDfa76a0417238a60ea9374`](https://chainscan.0g.ai/address/0xFb4AE891dafD88998dDfa76a0417238a60ea9374) |
-| FlowEscrowV2 | [`0xC2cA8fde0575FbFf83Dd98F38B1Ee19e1B6B8DE9`](https://chainscan.0g.ai/address/0xC2cA8fde0575FbFf83Dd98F38B1Ee19e1B6B8DE9) |
-| AgentReputationV1 | [`0x0B919E17e9433B824867B351037d7b7c416aD6Fe`](https://chainscan.0g.ai/address/0x0B919E17e9433B824867B351037d7b7c416aD6Fe) |
-
-`AgentIdentityRegistry` is ours and exists only on this chain: there is no code
-at the Galileo ERC-8004 address on mainnet, and 0G's Agentic ID cannot stand in
-because its `mint` is `onlyOwner` — no stranger could list an agent, which is
-the entire premise. The full argument, including why this is not a rejection of
-ERC-7857, is in [`docs/0g-integration.md`](docs/0g-integration.md).
-
-### Agents listed on mainnet
-
-Each published itself permissionlessly: an identity minted, its JSON Schema
-written to 0G Storage, and its listing registered — only after passing the
-adapter conformance suite.
-
-| Agent | Signing key | Endpoint |
-|---|---|---|
-| 1 · Repo Auditor | `0x8559E76E…` | `/agents/audit` |
-| 2 · Repo auditor | `0xdEa0d514…` | `/agents/audit` |
-| 3 · Summariser | `0x3FFCEb7C…` | `/agents/summarize` |
-| 4 · Scorer | `0xDa5568F2…` | `/agents/score` |
-| 5 · Publisher | `0xDF0A5525…` | `/agents/publish` |
-
-### A run, anchored and verified on mainnet
-
-```
-runId       0xd57a33da3eb401e06f18feaf23d6eccf07f56b6b01ed3e2823f44505a535edea
-chain root  0x4a2d81a9092fc34dfb933ed52f9c6c5d12d82a12d512680caa684f5894c2a043
-outcome     0 (ok) · 4 steps · 4 distinct agents
-```
-
-Check it yourself — this reads 0G and nothing else:
+Check a real job that ran on 0G mainnet. This reads the blockchain and 0G
+Storage directly — it does not contact this project's servers, and works
+whether or not they are up.
 
 ```sh
 ZG_NETWORK=aristotle npx @0gflow/verify   0xd57a33da3eb401e06f18feaf23d6eccf07f56b6b01ed3e2823f44505a535edea
 ```
 
 ```
+  Run    0xd57a33da…   flow 0x24679b…
+  Chain  0G Aristotle Mainnet (16661)   ·   receipts 0xC93BFC…
+  Traces 0G Storage (https://indexer-storage-turbo.0g.ai)
+
   [0] audit      id ✓  trace ✓  hashes ✓   signed ✓ by agent 2
   [1] summarize  id ✓  trace ✓  hashes ✓   signed ✓ by agent 3
   [2] score      id ✓  trace ✓  hashes ✓   signed ✓ by agent 4
   [3] publish    id ✓  trace ✓  hashes ✓   signed ✓ by agent 5
 
+  Linkage      ?   not checked (the flow spec was not supplied)
+  Chain root   ✓   0x4a2d81… matches on-chain seal
+  Outcome      ✓   success
+
+  INCOMPLETE — nothing failed, but the evidence to finish verifying
+               was not available
+```
+
+**That verdict is the point.** Four steps were each signed by a *different*
+key, and each recovers to the address that agent registered on chain — that
+part is proven. But the flow specification is not on chain, so without it the
+verifier cannot re-derive that every step's input came from the step it claims
+to depend on. It says so rather than rounding up to a tick.
+
+Supply the spec and the same run verifies completely:
+
+```sh
+git clone https://github.com/SCARPxVeNOM/4RGE && cd 4RGE
+ZG_NETWORK=aristotle npx @0gflow/verify   0xd57a33da3eb401e06f18feaf23d6eccf07f56b6b01ed3e2823f44505a535edea   --spec artifacts/runs/0xd57a33da3eb401e06f18feaf23d6eccf07f56b6b01ed3e2823f44505a535edea.json
+```
+
+```
   Linkage      ✓   4/4 inputs derive from declared upstream outputs
   Chain root   ✓   0x4a2d81… matches on-chain seal
   Outcome      ✓   success
@@ -112,380 +73,209 @@ ZG_NETWORK=aristotle npx @0gflow/verify   0xd57a33da3eb401e06f18feaf23d6eccf07f5
   VERIFIED — 4 steps · 4 agents
 ```
 
-Every step is signed by a *different* key, and each one recovers to the address
-that agent registered on chain. That is the difference between a receipt naming
-an agent and a receipt proving one.
+---
+
+## The one rule
+
+> **No status reports success unless a third party can independently confirm it
+> from public data.**
+
+Everything else follows from it:
+
+- A step is `Ok` only if its receipt is anchored — the status cannot be
+  produced anywhere except `decideStepStatus`, and a build-time structural
+  scan fails if it is.
+- "I could not obtain the evidence" is a **distinct verdict** from "the
+  evidence was bad". The verifier reports `INCOMPLETE`, never rounding up.
+- The explorer recomputes what it can in your browser and states plainly what
+  it could not check.
 
 ---
 
-## Deployed on 0G Galileo (chain 16602)
+## How a job works
 
-Deployed via CREATE2 with salt `keccak256("0gflow.v1")` at block 50316677, so
-the same addresses are reproducible on Aristotle (§12). Each was confirmed to
-hold code and to be correctly wired before being recorded in `packages/config`.
+```mermaid
+flowchart LR
+    A["Hire"] --> B["Agent signs<br/>its output"]
+    B --> C["Receipt anchored<br/>on 0G Chain"]
+    C --> D["Escrow pays<br/>against the signature"]
+    D --> E["Anyone verifies"]
+```
+
+1. **Hire.** You pick an agent from the on-chain directory. If it charges, the
+   money is held in escrow rather than sent up front.
+2. **Sign.** The agent signs its output with its own key, over a digest bound
+   to this chain, this run and this step — so a signature cannot be replayed.
+3. **Anchor.** Input hash, output hash, agent id and trace root go on chain.
+   The full trace goes to 0G Storage.
+4. **Pay.** `FlowEscrowV2` recovers the signature and pays the payee **from the
+   listing**, never from the transaction — so the executor cannot misdirect
+   money even though it submits the transaction.
+5. **Verify.** Anyone re-derives all of it from 0G alone.
+
+Full detail, including which 0G components are used and which deliberately are
+not, is in **[docs/0g-integration.md](docs/0g-integration.md)**.
+
+---
+
+## Deployments
+
+### 0G Aristotle Mainnet — chain 16661
+
+CREATE2, salt `keccak256("0gflow.mainnet.v1")`, block 42941679. Every address
+was read back from chain and every wiring assertion passed before being
+recorded.
 
 | Contract | Address |
 |---|---|
-| FlowRegistry | [`0xe09aC2F04Fc663dB9ddb2824d44d5B1AFe7fD53f`](https://chainscan-galileo.0g.ai/address/0xe09aC2F04Fc663dB9ddb2824d44d5B1AFe7fD53f) |
-| ExecutionReceipts | [`0x741A36fAba40ee71223539a5A062FDEDC8574e30`](https://chainscan-galileo.0g.ai/address/0x741A36fAba40ee71223539a5A062FDEDC8574e30) |
-| AgentAdapterRegistry | [`0x239E66ca972bdA91542BA78c12B3003EFED8389e`](https://chainscan-galileo.0g.ai/address/0x239E66ca972bdA91542BA78c12B3003EFED8389e) |
-| FlowEscrow | [`0xC40aC67bF4d63D8CdFeCBb80cE1C357c90291C39`](https://chainscan-galileo.0g.ai/address/0xC40aC67bF4d63D8CdFeCBb80cE1C357c90291C39) |
+| `AgentIdentityRegistry` | [`0x048E5468…0682A`](https://chainscan.0g.ai/address/0x048E54685269dCda692122F5d9562F779810682A) |
+| `FlowRegistry` | [`0x41660B02…F265e`](https://chainscan.0g.ai/address/0x41660B0216Bb13388f5622e9d2550F543C5F265e) |
+| `ExecutionReceiptsV2` | [`0xC93BFC19…E6174`](https://chainscan.0g.ai/address/0xC93BFC19a69248EefbF74F92961D49DE302E6174) |
+| `AgentAdapterRegistryV2` | [`0xFb4AE891…a9374`](https://chainscan.0g.ai/address/0xFb4AE891dafD88998dDfa76a0417238a60ea9374) |
+| `FlowEscrowV2` | [`0xC2cA8fde…B8DE9`](https://chainscan.0g.ai/address/0xC2cA8fde0575FbFf83Dd98F38B1Ee19e1B6B8DE9) |
+| `AgentReputationV1` | [`0x0B919E17…D6Fe`](https://chainscan.0g.ai/address/0x0B919E17e9433B824867B351037d7b7c416aD6Fe) |
 
-Pre-existing registries resolved by on-chain probe (§2), not assumed:
+### 0G Galileo Testnet — chain 16602
 
-| Registry | Address |
+The v1 and v2 contracts, plus 0G's two pre-existing agent identity registries:
+ERC-8004 at `0x7177a686…` and Agentic ID (ERC-7857) at `0x2700F6A3…`.
+
+This is also where the enclave-bound run lives — `0x17f361c5…`, a step whose
+attestation is a real 0G Compute TEE signature checked against the signer 0G
+acknowledges on chain:
+
+```sh
+npx @0gflow/verify 0x17f361c5b5ce1cedfc222b15a94d0b4016269f1838b74b4a930709ad0a133fe7   --spec artifacts/runs/0x17f361c5b5ce1cedfc222b15a94d0b4016269f1838b74b4a930709ad0a133fe7.json
+```
+
+Addresses for both networks are in
+[`packages/config`](packages/config/src/index.ts), the single source of truth
+for every network value.
+
+---
+
+## Publishing an agent
+
+Two transactions from your own wallet. Neither this project nor its servers
+ever see your key.
+
+**From a browser** — [explorer → Publish](https://explorer-production-25c8.up.railway.app/#/publish).
+Connect a wallet, paste your agent's URL. The site checks it against the
+adapter contract, stores your schema on 0G Storage, then your wallet signs.
+
+**From a terminal:**
+
+```sh
+ZG_NETWORK=aristotle ZG_PRIVATE_KEY=0x… npx @0gflow/publish \
+  --endpoint https://your-agent.example \
+  --signer 0xAddressYourAgentSignsWith \
+  --name "What it does" \
+  --price 1000000000000000
+```
+
+Publishing **refuses** an agent that fails the conformance suite. Passing is
+the criterion for being safe to hire: a flow that hires an agent which
+mishandles the adapter contract produces receipts nobody can verify, and the
+person harmed is whoever hired it.
+
+```sh
+npx @0gflow/conform https://your-agent.example   # run the checks yourself
+```
+
+[`templates/agent`](templates/agent) is a complete deployable agent — one
+function to change, a Dockerfile, and a Railway button.
+
+---
+
+## Packages
+
+Published to npm under [`@0gflow`](https://www.npmjs.com/org/0gflow) at
+`1.0.3`.
+
+| Package | Purpose |
 |---|---|
-| ERC-8004 Trustless Agent | `0x7177a6867296406881E20d6647232314736Dd09A` |
-| 0G Agentic ID (ERC-7857) | `0x2700F6A3e505402C9daB154C5c6ab9cAEC98EF1F` |
+| [`core`](packages/core) | Canonicalization, hashing, receipt encoding, chain root, linkage, status decisions. Zero dependencies. |
+| [`verify`](packages/verify) | **The verifier.** Single file, no dependencies, reads only public data. |
+| [`executor`](packages/executor) | Plans and runs a flow; anchors receipts; settles payment. |
+| [`config`](packages/config) | Every network-specific value, and nothing else. |
+| [`adapter-sdk`](packages/adapter-sdk) · [`python-sdk`](packages/python-sdk) | Build an agent in TypeScript or Python. |
+| [`conform`](packages/conform) | The §6.4 adapter conformance suite. |
+| [`publish`](packages/publish) | Mint an identity, store a schema, list an agent. |
+| [`storage`](packages/storage) | 0G Storage read/write. |
+| [`indexer`](packages/indexer) · [`explorer-api`](packages/explorer-api) | Follow the chain; serve a public read-only API. |
+| [`apps/explorer`](apps/explorer) | The web interface. |
 
-### A real run, anchored and sealed
+---
 
-`pnpm --filter @0gflow/live-run live` executed a two-step linked run on chain:
+## Development
 
-```
-runId       0x530f48096fd42536e4b9726c3d3a0a3126ff10270c7c77127071bd4fc831be52
-chain root  0x0fa7e8ef4f15125b5f72648fd59051df1b4f9f50c28dbd1b51c846524fce07c1
+Requires Node ≥ 20, [pnpm](https://pnpm.io) 10, and
+[Foundry](https://book.getfoundry.sh) for the contracts.
 
-  publishFlow    block 50317338
-  startRun       block 50317353
-  anchorStep(1)  block 50317376   <- anchored out of order, deliberately
-  anchorStep(0)  block 50317392
-  sealRun        block 50317415
+```sh
+pnpm install
+pnpm build
 
-  chain root computed off chain == chain root read from the seal
-  receipts recovered from StepAnchored logs re-fold to the sealed root
-  linkage verified 2/2 from the chain-recovered receipts
-  run outcome: success
-```
-
-Steps were anchored **out of order** on purpose: §1.1 claims the root is
-independent of completion order, and this exercises that against a real chain.
-The root the TypeScript core folded matched the root Solidity sealed, which is
-the cross-language agreement §5.2 exists to guarantee — proven on a live
-network rather than against a fixture.
-
-## The three things that had to be right first
-
-**§5.2 canonicalization is frozen.** Five components hash through this module.
-It is pinned by 27 unit tests, 6 property-based round-trip tests, and 15
-cross-language conformance vectors in
-`packages/core/vectors/canonicalization.json` that every other implementation —
-including the Python SDK — must reproduce byte for byte.
-
-> The trap worth knowing about: RFC 8785 sorts object keys by **UTF-16 code
-> unit**, not code point. `U+1F600` sorts *before* `U+FFFF` because its lead
-> surrogate `0xD83D` is below `0xFFFF`. Python's `sorted()` gets this backwards
-> by default. There is a dedicated vector for it, and a test asserting the
-> vector cannot be deleted.
-
-**§4.1 linkage is the whole claim.** `verifyLinkage()` re-derives every step's
-input from its declared upstream outputs and checks it against the anchored
-`inputHash`. The test that matters is
-`detects tampering even when both hashes are recomputed consistently`: an
-attacker who rewrites a trace *and* both receipt hashes still fails, because
-step 2's input no longer derives from step 1's output.
-
-**§10.3 was written before the code it constrains.** Success is unreachable
-without an on-chain artifact — not by convention but by construction.
-`packages/core/src/outcome.ts` is the only place a success value can be built,
-and the only way to build one is to supply an anchor whose hash matches the
-receipt. Three source-tree scans enforce it as the executor, API, indexer and
-CLI get written on top.
-
-Solidity and TypeScript are cross-checked against each other:
-`test_ReceiptHashMatchesTypeScriptCore` pins
-`keccak256(abi.encode(Receipt))` to the same value both sides compute.
-
-## The verifier
-
-```
-npx @0gflow/verify <runId>
+pnpm test              # 908 TypeScript tests
+pnpm test:contracts    # 170 Solidity tests
+pnpm test:python       # 229 Python tests
+pnpm typecheck
 ```
 
-Zero runtime dependencies, one bundled file of ~1,400 readable lines importing
-nothing but `node:crypto`, `node:fs`, `node:https`, `node:os` and `node:path`.
-JSON-RPC and ABI decoding are hand-rolled: §9 makes auditability the point, and
-a tool with a large transitive dependency tree is not auditable. A test asserts
-the published package declares no dependencies and the bundle contains no bare
-imports, so this cannot rot.
+Run a flow end to end against a live chain:
 
-**Three verdicts, because two would force it to lie.** §1.3 says nothing
-reports success unless a third party can confirm it, so "I could not get the
-evidence" must not collapse into either pass or fail:
-
-| Verdict | Exit | Meaning |
-|---|---|---|
-| `VERIFIED` | 0 | every check ran and passed against retrievable public data |
-| `FAILED` | 1 | a check ran and did not pass |
-| `INCOMPLETE` | 2 | evidence was missing, so a check could not run |
-
-Failure outranks incompleteness, so a broken run cannot hide behind missing
-data. Against the live run, with 0G Storage down, it correctly refuses to say
-VERIFIED even though every check it *could* run passed:
-
-```
-  [0] audit        0x4109ce…   id ✓   trace ✓   hashes ✓   attestation: not required
-  [1] summarize    0x706edb…   id ✓   trace ✓   hashes ✓   attestation: not required
-
-  Linkage      ✓   2/2 inputs derive from declared upstream outputs
-  Chain root   ✓   0x52f5f4… matches on-chain seal
-  Outcome      ✓   success
-
-  Not checked:
-    ? not every trace was retrieved from 0G Storage with a verified inclusion
-      proof, so third-party retrievability is unproven
-
-  INCOMPLETE — nothing failed, but the evidence to finish verifying was not available
+```sh
+ZG_NETWORK=aristotle ZG_PRIVATE_KEY=0x… pnpm --filter @0gflow/run-flow flow -- success
 ```
 
-### `--tamper`
+`ZG_NETWORK` defaults to `galileo`. The default is deliberately
+one-directional: forgetting the variable lands you on testnet, where a mistake
+is free. Reaching mainnet requires typing its name.
 
-Mutates a copy of a stored trace and shows the detection cascade:
+---
 
-```
-  before  {"report":"no critical findings; 3 informational","severity":"info"}
-  after   {"report":"…","severity":"info","tamperedBy":"0gflow-verify --tamper"}
+## What makes the guarantees real
 
-  [0] audit        hashes ✗
-  Linkage      ✗   0/2 inputs derive from declared upstream outputs
+**Agent identity is proven, not claimed.** Anyone can write any `agentId` into
+a receipt. Only the holder of that agent's registered key can produce the
+signature that makes it mean something — and that same signature is what
+releases payment.
 
-    ✗ step 0: the stored output hashes to 0x02d28b… but the receipt anchors 0x6cf9cf…
-    ✗ step "summarize": cannot re-derive input because upstream output "audit"
-      was not confirmed
+**Attestation is anchored on 0G, not on a vendor PKI.** 0G's `InferenceServing`
+contract records the TEE signer it acknowledges per provider. Verified on
+Galileo: for every captured provider, that address is byte-identical to the one
+inside the enclave's quote. No root certificate is vendored, and revocation
+works, because chain state is live.
 
-  TAMPER DETECTED
-```
+**Slashing needs no arbiter.** `AgentReputationV1` slashes only for
+equivocation — two conflicting signatures over the same step — which is
+objectively provable from the signatures alone. Nobody has to judge quality.
 
-Note the second failure. Changing one step's output does not merely break that
-step's hash — it breaks the *next* step's linkage, because step 1's input can
-no longer be derived from an output nobody confirmed. That cascade is §4.1
-working.
+**Escrow cannot trap funds.** Refundable after a deadline whether or not the
+run sealed, and on any sealed outcome. This fixes a defect in v1 where a run
+sealed `ok` with unreleased steps locked the remainder permanently.
 
-### Two bugs that only showed up against the real chain
+---
 
-Both were the same species — a verifier claiming to have checked something it
-had not — and both were found by running it against Galileo rather than
-fixtures:
+## Honest limitations
 
-1. **The 0G Storage indexer answers a missing file with HTTP 200** and a body
-   of `{"code":101,"message":"File not found"}`. Keying off the status code
-   handed that envelope to the verifier as though it were a trace, which then
-   reported a *failed* hash check for a file that simply was not there.
-   "Absent" and "wrong" are different answers.
-2. **The report printed "flow spec not supplied"** whenever linkage was
-   skipped, including when the real reason was unavailable traces — stating a
-   confident wrong reason for not checking something.
+- **Unaudited**, and holding real funds on mainnet. Treat accordingly.
+- **Health probes are not verifiable.** Whether an agent answered is this
+  indexer's observation from one vantage at one moment. The interface marks it
+  as such and always shows its age — unlike every other figure, which is
+  recomputable from chain.
+- **A bond is not a quality guarantee.** Nothing on chain can judge whether
+  work was good. A bond is a cost to walking away from your own name.
+- **Determinism and LLMs do not mix.** An agent fronting a language model fails
+  the conformance suite's determinism check, correctly. A flow needing a
+  reproducible output should not put an LLM in the middle of it.
+- **Token ids collide across identity registries.** On Galileo every id exists
+  in both ERC-8004 and Agentic ID with different owners. The verifier resolves
+  against the registry the adapter registry names on chain, rather than
+  guessing from configuration.
 
-## Phase 3: real runs, end to end
+---
 
-`pnpm --filter @0gflow/run-flow flow -- all` executes three flows against the
-deployed contracts, invoking the reference agents over real HTTP. Each is then
-verified independently by the CLI, which reads only chain logs and traces.
+## Licence
 
-| Scenario | Shape | Sealed outcome | Verifier |
-|---|---|---|---|
-| `success` | 4 steps, parallel branch | `0` ok | linkage ✓ 4/4, chain root ✓ |
-| `unattested` | step requires attestation, agent gives none | `3` unattested | linkage ✓ 2/2, step flagged `✗ required but absent` |
-| `failure` | middle step fails, next is skipped | `1` failed | linkage ✓ 3/3, chain root ✓ |
-
-All three cost 0.0075 A0GI in total.
-
-The `success` run is §11's completion gate — "verifier CLI passes against a
-live four-step run":
-
-```
-  [0] audit        id ✓   trace ✓   hashes ✓   attestation: not required
-  [1] summarize    id ✓   trace ✓   hashes ✓   attestation: TEE ✓
-  [2] score        id ✓   trace ✓   hashes ✓   attestation: not required
-  [3] publish      id ✓   trace ✓   hashes ✓   attestation: not required
-
-  Linkage      ✓   4/4 inputs derive from declared upstream outputs
-  Chain root   ✓   0x784439… matches on-chain seal
-```
-
-### What the failure run exposed
-
-It initially made the verifier report **FAILED** — which is wrong. §1.3 says
-failed runs are *verifiable as failures*; a failed run that fails verification
-is indistinguishable from a tampered one, and the entire point is that those
-are different.
-
-The cause was a semantic gap. A failed or skipped step anchors
-`outputHash = 0x00…`, which is a claim of **absence** — the step committed to
-nothing. The verifier was comparing that against `hashJson({})` from the trace
-and calling the mismatch tampering. Both `verifyLinkage` and the verifier now
-treat a zero hash as "no commitment" and skip the comparison — but only where
-the status explains it:
-
-> **An ok step may never commit to nothing.** Otherwise a step could pass every
-> hash check by claiming it produced nothing at all.
-
-`--tamper` still detects mutation, so the exemption did not become a hiding
-place. Nothing had exercised the failure path end to end until §11 forced it,
-which is the argument for building the failure demonstration rather than
-assuming it.
-
-## Indexer and explorer
-
-```
-docker run -d --name 0gflow-pg -e POSTGRES_PASSWORD=0gflow   -e POSTGRES_USER=0gflow -e POSTGRES_DB=0gflow -p 55432:5432 postgres:16-alpine
-
-export DATABASE_URL=postgres://0gflow:0gflow@localhost:55432/0gflow
-pnpm --filter @0gflow/indexer index --once      # backfill from the deployment block
-pnpm --filter @0gflow/explorer-api serve        # :8711
-pnpm --filter @0gflow/explorer dev              # :5173
-```
-
-The indexer backfills from the deployment block and follows the head. All five
-live runs index correctly and re-indexing is idempotent.
-
-**Reorgs (§8.1).** Rows record the block they came from, so they can be undone.
-Each pass re-checks the unfinalised tail against the chain's current block
-hashes; the first mismatch means everything above it describes a chain that no
-longer exists, so those rows are dropped and the range is rescanned. Blocks
-below the finality depth are never re-checked — re-verifying the whole chain
-every pass would make the indexer O(chain). That tradeoff has its own test
-asserting a deep reorg is *not* detected, so the limit is documented rather
-than discovered.
-
-**Two stores, one suite.** `MemoryStore` makes the ingestion logic testable
-without infrastructure; `PostgresStore` is what runs. Both are held to the same
-conformance suite, so a divergence is a failing test rather than a
-production-only surprise. The Postgres case skips when no database is
-reachable and says so out loud, because a green suite that quietly skipped the
-production store is worse than a red one.
-
-### The explorer does not ask to be trusted
-
-§8.2 requires client-side verification, and it means it. The API serves the raw
-receipt fields rather than a verdict, and the browser folds the chain root
-itself using the same frozen `@0gflow/core` the executor and verifier use:
-
-> **Chain root verified in your browser.** The receipts served by this API fold
-> to `0x784439c4a85ff5…0ca4`, which is the root sealed on chain. Recomputed
-> here with the same `@0gflow/core` the executor and verifier use — this page
-> did not take the API's word for it.
-
-If the API were lying, or merely wrong, the fold would not match and the page
-says so. It is also explicit about its limits: it cannot fetch traces, so it
-never claims a run is *verified* — only that the chain root holds — and it
-prints the `npx @0gflow/verify` command for the rest.
-
-### Making core browser-safe
-
-Building the explorer surfaced a real constraint. `@0gflow/core` used
-`node:crypto` for sha256, so it could not bundle for a browser at all:
-
-```
-"createHash" is not exported by "__vite-browser-external"
-```
-
-§5.2 makes core the single implementation shared by five components and §8.2
-adds a sixth that runs in a browser, so sha256 is now hand-written in pure
-TypeScript alongside keccak256. A test asserts core imports nothing from
-`node:`, uses no `require()`, and touches no Node globals — the guard that
-keeps it true. The published conformance vectors pinned correctness through
-the swap.
-
-## Three places the implementation departs from the spec
-
-All flagged rather than silently absorbed.
-
-**1. `Receipt.agentId` is a `uint256`, not an `address`.** §4.1 types it as an
-address, but both agent registries deployed on Galileo are ERC-721 and identify
-agents by token id. Narrowing a token id to 20 bytes would let two distinct
-agents collide into one identity, and there is no stable address to use — an
-ERC-721 agent's owner is transferable. Changed during Phase 1 because §13
-freezes contract interfaces at the end of it. Full reasoning and the on-chain
-evidence: [`docs/agent-identity.md`](docs/agent-identity.md).
-
-**2. `ExecutionReceipts` stores one byte per step.** §4.1 asks for event-based
-receipts with "no per-step storage writes beyond seal records", but §4.4's
-`releaseStep` requires `status == 0` — and contracts cannot read logs. Since
-idempotency already forces one storage write per step, the status is packed
-into that same slot at no extra gas cost, exposed as `statusOf()`.
-
-**3. `anchorStep` is restricted to the run's declared executor.** The spec does
-not mention authorisation. Without it, anyone can anchor step 0 of your run
-first and permanently block it, since duplicates revert. `FlowRegistry` records
-the executor at `startRun` and `ExecutionReceipts` enforces it.
-
-## The attestation finding
-
-`docs/attestation-structure.md` documents a real captured attestation. The
-short version:
-
-- It is an **Intel TDX v4 quote** (5006 bytes, fixed) inside a ~45 KB JSON
-  envelope with `tcb_info`, `event_log` and `vm_config`.
-- `report_data` is 64 bytes containing the **ASCII of an Ethereum address**,
-  zero-padded — the enclave's signing key. Intel's hardware root of trust is
-  attesting *"an enclave with these measurements controls this key."*
-- Retrieval needs **no wallet and no funds**, but the working path is
-  `/v1/quote`; the path referenced in the SDK returned 501 on the same host.
-  2 of 6 listed providers responded.
-
-**The gap this exposed:** digesting the blob proves it was not modified. It
-does **not** prove the blob relates to this step's output — a genuine
-attestation can be attached to an output its enclave never produced. Closing
-that requires verifying the per-response signature
-(`/v1/proxy/signature/{chatID}`) against the address in `report_data`. This
-affects §6.3 and §9's verification procedure, and should be settled before the
-executor's attestation path is written.
-
-## 0G Storage is currently rejecting writes
-
-The round-trip tool (`tools/storage-roundtrip`) is written and correct up to
-the upload call, but cannot complete on Galileo right now. This is upstream,
-not ours:
-
-- Every `submit()` to the Flow contract
-  (`0x22E03a6A89B950F1c82ec5e74F8eCa321a105296`, a beacon proxy) reverts with a
-  bare `require(false)` and no revert data.
-- It fails identically for a clean 256-byte single-chunk upload, so it is not
-  our padding, length semantics or submission structure.
-- The fee is correct: 3 sectors × `pricePerSector` 30733644962, sent as value.
-  A 10× fee reverts the same way.
-- Flow and market are mutually wired (`market.flow()` and `flow.market()`
-  agree), and the contract is not paused.
-- **Zero `Submit` events in the last 200,000 blocks.**
-- The standard indexer returns 503; the turbo indexer is reachable but its Flow
-  rejects everything. Both independent networks are unavailable.
-
-Consequence: `traceRoot` in the live run above commits to the canonical trace
-bytes we hold rather than to a retrievable 0G Storage root. The commitment is
-real; retrievability is pending. Re-run the tool when Galileo storage accepts
-writes.
-
-## Acceptance criteria (§10.4)
-
-- [x] Canonicalization frozen with property tests
-- [x] Contracts drafted and unit-tested
-- [x] Real TEE attestation captured and its byte structure documented
-- [x] Contracts deployed on Galileo; addresses in this README
-- [x] Multi-step run with linked steps, anchored out of order and sealed on chain
-- [x] ERC-8004 identity resolved on chain and load-bearing
-- [x] No mock or simulated path in what is demonstrated
-- [ ] Contracts source-verified on the explorer
-- [ ] 0G Storage round-trip *(blocked upstream, see above)*
-- [x] A deliberately failed run, sealed and verifiable as a failure
-- [x] Multi-step run including a parallel branch, executed against real agents
-- [x] Failure and unattested paths produce correct statuses on chain
-- [x] Verifier CLI (`npx @0gflow/verify`), zero dependencies, single file
-- [x] `--tamper` demonstrates detection
-
-## Next
-
-§11's completion gate is met: the verifier passes against a live multi-step run
-with a parallel branch, and the failure and unattested paths produce correct
-statuses on chain. Everything after this is Phase 4/5 surface area — indexer,
-explorer, adapter SDK, conformance suite, Python SDK.
-
-Two things are still open and neither is in our hands:
-
-- **0G Storage.** Every verdict above is `INCOMPLETE` rather than `VERIFIED`
-  solely because traces cannot be uploaded, so third-party retrievability is
-  unproven. Nothing in the verifier needs to change when writes are accepted
-  again.
-- **Attestation binding.** `attestationRef` digests the attestation blob but
-  does not bind it to the step's output; closing that needs the per-response
-  signature. See [`docs/attestation-structure.md`](docs/attestation-structure.md).
+MIT.
