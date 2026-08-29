@@ -192,7 +192,7 @@ function scenario(
     runId: RUN_ID,
     chain: new FakeChain([encodeStepAnchoredLog(receipt)], [sealLog], registry),
     traces: new FakeTraces(new Map([[traceRoot.toLowerCase(), trace]])),
-    identityRegistry: REGISTRY,
+    identityRegistries: [{ address: REGISTRY, standard: 'ERC-8004' }],
     spec: { steps: [{ id: 'summarize', input: { text: '{{ inputs.text }}' } }], inputs: { text: 'the findings' } },
   };
 }

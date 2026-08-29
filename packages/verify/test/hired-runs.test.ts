@@ -178,7 +178,7 @@ const verify = (world: World, over: Record<string, unknown> = {}) =>
     runId: PARENT_RUN,
     chain: world,
     traces: world,
-    identityRegistry: null,
+    identityRegistries: [],
     spec: null,
     ...over,
   } as Parameters<typeof verifyRun>[0]);

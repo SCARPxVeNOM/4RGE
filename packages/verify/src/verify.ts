@@ -163,9 +163,11 @@ export interface StepCheck {
   readonly status: StepStatus;
   readonly receiptHash: Hex;
   readonly txHash: Hex;
-  /** null when the registry was not supplied and the check did not run. */
+  /** null when no registry was supplied and the check did not run. */
   readonly identityResolved: boolean | null;
   readonly identityOwner: Hex | null;
+  /** Which standard vouches for this agent, once one does. */
+  readonly identityStandard: string | null;
   readonly traceOrigin: TraceOrigin | null;
   readonly inclusionProofVerified: boolean;
   /** null when the trace could not be fetched. */
@@ -280,12 +282,35 @@ export interface SpecForLinkage {
   readonly inputs: JsonValue;
 }
 
+/**
+ * An agent identity registry, and the standard it implements.
+ *
+ * 0G ships two: ERC-8004 for public discovery and reputation, and ERC-7857
+ * Agentic ID for agents whose intelligence is tokenised with encrypted
+ * metadata. Both are ERC-721 keyed by uint256 token id, so a receipt's agentId
+ * resolves against either — which is exactly why the verifier has to say which
+ * one answered.
+ */
+export interface IdentitySource {
+  readonly address: Hex;
+  /** Shown to the reader: "ERC-8004", "Agentic ID (ERC-7857)". */
+  readonly standard: string;
+}
+
 export interface VerifyOptions {
   readonly runId: Hex;
   readonly chain: ChainSource;
   readonly traces: TraceSource;
-  /** ERC-721 agent registry; null skips step 7 and marks it incomplete. */
-  readonly identityRegistry: Hex | null;
+  /**
+   * Every identity registry to resolve an agentId against. Empty skips step 7
+   * and marks it incomplete.
+   *
+   * A list rather than one address because 0G ships two agent identity
+   * standards and this system accepts both: ERC-8004 for public discovery, and
+   * ERC-7857 Agentic ID for agents whose intelligence is tokenised. Both are
+   * ERC-721 keyed by uint256, so `ownerOf` answers for either.
+   */
+  readonly identityRegistries: readonly IdentitySource[];
   /** Flow spec; null skips step 4 and marks it incomplete. */
   readonly spec: SpecForLinkage | null;
   /**
@@ -320,7 +345,31 @@ interface StepEvidenceRecord {
 }
 
 export async function verifyRun(options: VerifyOptions): Promise<VerificationReport> {
-  const { runId, chain, traces, identityRegistry, spec, agentIdentity } = options;
+  const { runId, chain, traces, identityRegistries, spec, agentIdentity } = options;
+
+  /*
+   * Which identity registry actually governs this deployment.
+   *
+   * Asked of the adapter registry rather than inferred from configuration,
+   * because on Galileo every token id exists in both of 0G's identity
+   * registries with different owners — resolving against a list would report
+   * every run as ambiguous, or worse, pick one. The adapter registry holds the
+   * answer on chain, and it is the same registry that checked ownership when
+   * the agent was listed.
+   *
+   * Null when no adapter registry was supplied or it does not expose the
+   * getter; the list is then consulted, and says plainly when it cannot tell.
+   */
+  let authoritativeRegistry: IdentitySource | null = null;
+  if (agentIdentity !== undefined && chain.identityRegistryOf !== undefined) {
+    const governing = await chain.identityRegistryOf(agentIdentity.registry as Hex);
+    if (governing !== null) {
+      const known = identityRegistries.find(
+        (r) => r.address.toLowerCase() === governing.toLowerCase(),
+      );
+      authoritativeRegistry = known ?? { address: governing, standard: 'the listed registry' };
+    }
+  }
   const maxHireDepth = options.maxHireDepth ?? 3;
   const failures: string[] = [];
   const incomplete: string[] = [];
@@ -391,17 +440,67 @@ export async function verifyRun(options: VerifyOptions): Promise<VerificationRep
     const notes: string[] = [];
     const stepId = spec?.steps[receipt.stepIndex]?.id ?? null;
 
-    // Step 7: identity.
+    // Step 7: identity, against every registry configured.
     let identityResolved: boolean | null = null;
     let identityOwner: Hex | null = null;
-    if (identityRegistry === null) {
-      notes.push('identity registry not configured; agent registration unchecked');
-    } else {
-      identityOwner = await chain.ownerOf(identityRegistry, receipt.agentId);
+    let identityStandard: string | null = null;
+
+    if (identityRegistries.length === 0) {
+      notes.push('no identity registry configured; agent registration unchecked');
+    } else if (authoritativeRegistry !== null) {
+      /*
+       * The adapter registry named its own identity registry, so there is
+       * nothing to disambiguate: that is the registry this agent's listing was
+       * checked against when it was published.
+       */
+      identityOwner = await chain.ownerOf(authoritativeRegistry.address, receipt.agentId);
       identityResolved = identityOwner !== null;
+      identityStandard = identityResolved ? authoritativeRegistry.standard : null;
       if (!identityResolved) {
         failures.push(
-          `step ${receipt.stepIndex}: agent ${receipt.agentId} is not registered in the identity registry ${identityRegistry}`,
+          `step ${receipt.stepIndex}: agent ${receipt.agentId} is not registered in ` +
+            `${authoritativeRegistry.standard} (${authoritativeRegistry.address}), which is the ` +
+            `registry the adapter registry was deployed against`,
+        );
+      }
+    } else {
+      const claims: { source: IdentitySource; owner: Hex }[] = [];
+      for (const source of identityRegistries) {
+        const owner = await chain.ownerOf(source.address, receipt.agentId);
+        if (owner !== null) claims.push({ source, owner });
+      }
+
+      if (claims.length === 1) {
+        identityOwner = claims[0]!.owner;
+        identityStandard = claims[0]!.source.standard;
+        identityResolved = true;
+      } else if (claims.length === 0) {
+        identityResolved = false;
+        failures.push(
+          `step ${receipt.stepIndex}: agent ${receipt.agentId} is registered in none of ` +
+            `${identityRegistries.map((r) => `${r.standard} (${r.address})`).join(', ')}`,
+        );
+      } else {
+        /*
+         * More than one registry claims this token id, and a receipt cannot
+         * say which was meant.
+         *
+         * This is not a bug in the resolver, it is a real consequence of
+         * keying receipts on a bare uint256: token 1 of ERC-8004 and token 1
+         * of Agentic ID are different agents that a receipt records
+         * identically. Picking the first match would silently attribute work
+         * to whichever registry happened to be listed first.
+         *
+         * The clean fix is one adapter registry deployment per identity
+         * registry, so the adapter address disambiguates — which the contract
+         * already supports, since it takes any IIdentityRegistry. Until then,
+         * refusing to guess is the only honest answer.
+         */
+        identityResolved = false;
+        failures.push(
+          `step ${receipt.stepIndex}: agent ${receipt.agentId} exists in more than one identity ` +
+            `registry (${claims.map((c) => c.source.standard).join(' and ')}), so the receipt does ` +
+            `not say which agent did this work`,
         );
       }
     }
@@ -597,6 +696,7 @@ export async function verifyRun(options: VerifyOptions): Promise<VerificationRep
       txHash: receipt.txHash,
       identityResolved,
       identityOwner,
+      identityStandard,
       traceOrigin: fetched?.origin ?? null,
       inclusionProofVerified: fetched?.inclusionProofVerified ?? false,
       hashesMatch,

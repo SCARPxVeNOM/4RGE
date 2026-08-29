@@ -25,6 +25,17 @@ export interface ChainSource {
   /** ERC-721 ownerOf; null when the token does not exist. */
   ownerOf(registry: Hex, agentId: bigint): Promise<Hex | null>;
   /**
+   * Which identity registry an adapter registry was deployed against.
+   *
+   * This is what disambiguates a bare uint256 agentId. 0G has two agent
+   * identity registries on Galileo and *every* token id exists in both with
+   * different owners — token 12 is ours in ERC-8004 and a stranger's in
+   * Agentic ID. Guessing from a config list would attribute work to whoever
+   * was listed first. The adapter registry holds exactly one, on chain, and
+   * that is the one the listing was checked against.
+   */
+  identityRegistryOf?(adapterRegistry: Hex): Promise<Hex | null>;
+  /**
    * The TEE signer 0G's InferenceServing contract acknowledges for a provider.
    *
    * The trust anchor for attestation (§6.3). null when the provider is not
@@ -198,6 +209,23 @@ export class JsonRpcChainSource implements ChainSource {
       const address = `0x${result.slice(-40)}`.toLowerCase() as Hex;
       return address === `0x${'00'.repeat(20)}` ? null : address;
     } catch {
+      return null;
+    }
+  }
+
+  /** `identityRegistry()` on the adapter registry. Selector 0x134e18f4. */
+  async identityRegistryOf(adapterRegistry: Hex): Promise<Hex | null> {
+    try {
+      const result = await this.call<string>('eth_call', [
+        { to: adapterRegistry, data: '0x134e18f4' },
+        'latest',
+      ]);
+      const address = `0x${result.slice(-40)}` as Hex;
+      return /^0x0{40}$/i.test(address) ? null : address;
+    } catch {
+      // An older adapter registry without the getter, or an address that is
+      // not one. Falls back to the configured list, which then has to say
+      // honestly that it cannot tell the registries apart.
       return null;
     }
   }

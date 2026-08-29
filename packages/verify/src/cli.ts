@@ -18,7 +18,9 @@ import {
   type TraceSource,
 } from './sources.js';
 import { verifyRun, type SpecForLinkage,
-  type SpecStep, type VerificationReport } from './verify.js';
+  type SpecStep, type VerificationReport,
+  type IdentitySource,
+} from './verify.js';
 import { exitCodeFor, renderReport } from './report.js';
 
 const USAGE = `
@@ -259,7 +261,29 @@ export async function main(argv: readonly string[]): Promise<number> {
   const contract = (args.contract ??
     network.contracts.executionReceipts ??
     requireAddress(network, 'executionReceiptsV2')) as Hex;
-  const registry = (args.registry ?? network.contracts.identityRegistry) as Hex | null;
+  /*
+   * Every identity registry this network has, not just one.
+   *
+   * 0G ships two agent identity standards and this system accepts both, so the
+   * verifier asks each of them who owns an agentId and reports which answered.
+   * If more than one answers, it refuses to guess — see the note in verify.ts.
+   *
+   * --registry still overrides, and then names the only registry consulted.
+   */
+  const identityRegistries: IdentitySource[] =
+    args.registry !== undefined
+      ? [{ address: args.registry as Hex, standard: 'supplied by --registry' }]
+      : [
+          network.contracts.identityRegistry === null
+            ? null
+            : { address: network.contracts.identityRegistry as Hex, standard: 'ERC-8004' },
+          network.contracts.agenticIdRegistry === null
+            ? null
+            : {
+                address: network.contracts.agenticIdRegistry as Hex,
+                standard: 'Agentic ID (ERC-7857)',
+              },
+        ].filter((r): r is IdentitySource => r !== null);
   // v2's block where v1 was never deployed, so the scan starts where the
   // contracts actually exist rather than at zero.
   const fromBlock = BigInt(
@@ -293,7 +317,7 @@ export async function main(argv: readonly string[]): Promise<number> {
       network.contracts.inferenceServing,
     ),
     traces: buildTraceSource(network, args),
-    identityRegistry: registry,
+    identityRegistries,
     spec,
     // All three or none: a digest recomputed against the wrong chain or the
     // wrong receipts address fails in a way indistinguishable from forgery.

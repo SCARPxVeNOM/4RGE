@@ -126,7 +126,7 @@ function scenario(overrides: { receipts?: Receipt[]; traces?: Map<string, JsonVa
     runId: RUN_ID,
     chain: new FakeChain(stepLogs, sealLogs),
     traces: new FakeTraces(traceMap, overrides.origin ?? 'storage'),
-    identityRegistry: REGISTRY,
+    identityRegistries: [{ address: REGISTRY, standard: 'ERC-8004' }],
     spec: SPEC,
   };
 }
