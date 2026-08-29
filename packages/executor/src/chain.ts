@@ -50,6 +50,15 @@ export interface ViemChainWriterOptions {
   readonly receiptsContract?: Hex;
 }
 
+/**
+ * How long to wait for a receipt before giving up.
+ *
+ * Generous on purpose. The cost of waiting too long is a slow run; the cost of
+ * giving up too early is an anchored step reported as failed.
+ */
+const RECEIPT_TIMEOUT_MS = 180_000;
+const RECEIPT_POLL_MS = 2_000;
+
 const DEFAULT_GAS_PRICE = 5_000_000_000n;
 
 /**
@@ -77,8 +86,24 @@ export class ViemChainWriter implements ChainWriter {
   constructor(options: ViemChainWriterOptions) {
     const network = requireResolved(options.network);
     this.flowRegistry = hx(requireAddress(network, 'flowRegistry'));
+    /*
+     * v1 where it exists, v2 where it does not.
+     *
+     * Galileo has both, and keeps using v1 here so runs anchored by this
+     * writer stay comparable with every run recorded before the marketplace
+     * existed. Aristotle has only v2 -- v1 was never deployed there, because a
+     * new chain has no legacy runs to stay compatible with.
+     *
+     * Falling back rather than switching the default keeps the existing chain
+     * behaving exactly as it did. Requiring v1 unconditionally, which is what
+     * this used to do, made every mainnet run fail with "executionReceipts is
+     * not deployed" -- an accurate message about a contract nobody intended to
+     * deploy.
+     */
     this.executionReceipts = hx(
-      options.receiptsContract ?? requireAddress(network, 'executionReceipts'),
+      options.receiptsContract ??
+        network.contracts.executionReceipts ??
+        requireAddress(network, 'executionReceiptsV2'),
     );
     this.gasPrice = options.gasPrice ?? DEFAULT_GAS_PRICE;
 
@@ -104,12 +129,46 @@ export class ViemChainWriter implements ChainWriter {
     });
   }
 
+  /**
+   * Waits for a receipt until a deadline, not for a number of tries.
+   *
+   * viem's `waitForTransactionReceipt` gives up after a fixed retry count. On
+   * 0G that count can elapse while the transaction is still perfectly fine,
+   * and the error it raises -- "no matching receipts found: this may indicate
+   * potential data corruption" -- describes a catastrophe that has not
+   * happened. The executor then reports a failed step for work that succeeded,
+   * which is the precise failure mode this whole project exists to prevent: a
+   * status that does not match the chain.
+   *
+   * Observed on Aristotle: transaction 0xb2c2a37a… raised that error and was
+   * mined successfully in block 42944148 with status 1.
+   *
+   * So: poll to a wall-clock deadline, treat "not found" as "not yet", and
+   * only give up when the deadline passes -- reporting the hash, because a
+   * transaction that may still confirm is not a transaction to resend.
+   */
   private async send(hash: `0x${string}`, label: string) {
-    const receipt = await this.publicClient.waitForTransactionReceipt({ hash });
-    if (receipt.status !== 'success') {
-      throw new ChainError(`${label} reverted (${hash})`);
+    const deadline = Date.now() + RECEIPT_TIMEOUT_MS;
+    for (;;) {
+      const receipt = await this.publicClient
+        .getTransactionReceipt({ hash })
+        .catch(() => null);
+
+      if (receipt !== null) {
+        if (receipt.status !== 'success') {
+          throw new ChainError(`${label} reverted (${hash})`);
+        }
+        return receipt;
+      }
+
+      if (Date.now() >= deadline) {
+        throw new ChainError(
+          `${label} was submitted as ${hash} but no receipt appeared within ` +
+            `${RECEIPT_TIMEOUT_MS / 1000}s. It may still confirm — check it before resending.`,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, RECEIPT_POLL_MS));
     }
-    return receipt;
   }
 
   async isFlowPublished(flowId: Hex): Promise<boolean> {

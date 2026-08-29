@@ -10,7 +10,7 @@
 
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { GALILEO, type Network } from '@0gflow/config';
+import { networkFromEnv, type Network } from '@0gflow/config';
 import { publishAgent, PublishError } from './publish.js';
 
 const USAGE = `
@@ -80,7 +80,13 @@ function parse(argv: readonly string[]): Args {
   return args;
 }
 
-export async function main(argv: readonly string[], network: Network = GALILEO): Promise<number> {
+export async function main(
+  argv: readonly string[],
+  // Chosen by the caller in tests; taken from ZG_NETWORK otherwise, which
+  // defaults to Galileo. Publishing to the wrong chain costs a mint and a
+  // storage write, so the network is never inferred from anything else.
+  network: Network = networkFromEnv(),
+): Promise<number> {
   let args: Args;
   try {
     args = parse(argv);

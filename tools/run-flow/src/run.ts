@@ -15,7 +15,12 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import type { AddressInfo } from 'node:net';
-import { GALILEO, requireAddress } from '@0gflow/config';
+import { networkFromEnv, requireAddress } from '@0gflow/config';
+
+// One binding for the whole run. Reading ZG_NETWORK once and threading the
+// result means a flow cannot end up half on one chain and half on another —
+// which would anchor receipts a verifier could never find.
+const NETWORK = networkFromEnv();
 import { keccak256, StepStatus, type Hex } from '@0gflow/core';
 import { executeRun, LocalTraceStore, ViemChainWriter } from '@0gflow/executor';
 import { ZgStorageTraceStore } from '@0gflow/storage';
@@ -50,8 +55,8 @@ async function chooseTraceStore(): Promise<{ describe: string; put: LocalTraceSt
   if (key === undefined || key.length === 0) return new LocalTraceStore(TRACE_DIR);
 
   const store = new ZgStorageTraceStore({
-    rpcUrl: GALILEO.rpcUrl,
-    indexerUrl: GALILEO.storageIndexerUrl,
+    rpcUrl: NETWORK.rpcUrl,
+    indexerUrl: NETWORK.storageIndexerUrl,
     privateKey: key,
   });
 
@@ -103,8 +108,8 @@ async function runScenario(
     // Without it a binding has nothing to be checked against and the step
     // could reach no more than `present`.
     signers: new ViemSignerRegistry({
-      rpcUrl: GALILEO.rpcUrl,
-      inferenceServing: requireAddress(GALILEO, 'inferenceServing'),
+      rpcUrl: NETWORK.rpcUrl,
+      inferenceServing: requireAddress(NETWORK, 'inferenceServing'),
     }),
     // Off, so a failure does not mask what the rest of the run would have
     // done; the skip then demonstrably comes from the dependency, not a
@@ -133,8 +138,8 @@ async function runScenario(
       {
         scenario: scenario.key,
         description: scenario.description,
-        network: GALILEO.name,
-        chainId: GALILEO.chainId,
+        network: NETWORK.name,
+        chainId: NETWORK.chainId,
         runId,
         flowId: result.flowId,
         chainRoot: result.chainRoot,
@@ -186,17 +191,17 @@ async function main() {
   let tee: Awaited<ReturnType<typeof createTeeAgentServer>> | null = null;
   let teeBase: string | null = null;
   if (keys.includes('bound')) {
-    tee = await createTeeAgentServer({ rpcUrl: GALILEO.rpcUrl, privateKey: privateKey! });
+    tee = await createTeeAgentServer({ rpcUrl: NETWORK.rpcUrl, privateKey: privateKey! });
     await new Promise<void>((resolve) => tee!.server.listen(0, '127.0.0.1', resolve));
     teeBase = `http://127.0.0.1:${(tee.server.address() as AddressInfo).port}`;
   }
 
-  const chain = new ViemChainWriter({ network: GALILEO, privateKey: privateKey! });
+  const chain = new ViemChainWriter({ network: NETWORK, privateKey: privateKey! });
 
   console.log('0G Flow — live execution');
-  console.log(`network  ${GALILEO.displayName} (${GALILEO.chainId})`);
+  console.log(`network  ${NETWORK.displayName} (${NETWORK.chainId})`);
   console.log(`executor ${chain.executorAddress}`);
-  console.log(`balance  ${Number(await chain.balance()) / 1e18} ${GALILEO.nativeToken}`);
+  console.log(`balance  ${Number(await chain.balance()) / 1e18} ${NETWORK.nativeToken}`);
   console.log(`agents   ${agentBase}`);
   if (tee !== null) {
     console.log(`tee      ${teeBase}`);
@@ -233,7 +238,7 @@ async function main() {
       `  node packages/verify/dist/verify.mjs ${run.runId} \\\n    --spec artifacts/runs/${run.runId}.json --trace-dir artifacts/traces\n`,
     );
   }
-  console.log(`balance remaining ${Number(await chain.balance()) / 1e18} ${GALILEO.nativeToken}`);
+  console.log(`balance remaining ${Number(await chain.balance()) / 1e18} ${NETWORK.nativeToken}`);
 
   // A run that did not seal, or a scenario whose outcome contradicts what it
   // was built to demonstrate, is a failure of this harness.

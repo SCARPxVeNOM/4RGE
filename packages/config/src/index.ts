@@ -269,3 +269,24 @@ export function requireAddress(network: Network, contract: keyof ContractAddress
   }
   return address;
 }
+
+/**
+ * The network the process should act on, from `ZG_NETWORK`.
+ *
+ * Defaults to Galileo. That default is deliberate and one-directional: an
+ * operator who forgets the variable ends up on testnet, where a mistake costs
+ * nothing. The reverse default — mainnet unless told otherwise — would make
+ * every forgotten flag an expensive one.
+ *
+ * Reaching mainnet therefore requires typing its name, which is the point.
+ */
+export function networkFromEnv(env: Record<string, string | undefined> = process.env): Network {
+  const name = env['ZG_NETWORK'];
+  if (name === undefined || name === '') return GALILEO;
+  if (name !== 'galileo' && name !== 'aristotle') {
+    throw new ConfigError(
+      `ZG_NETWORK is "${name}", which is not a network. Use "galileo" or "aristotle".`,
+    );
+  }
+  return requireResolved(getNetwork(name));
+}

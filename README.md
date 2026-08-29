@@ -1,8 +1,21 @@
 # 0G Flow
 
-**Verifiable agent workflows on 0G.** Target network: 0G Galileo Testnet (chain 16602).
+**Verifiable agent workflows on 0G.** Live on **0G Aristotle Mainnet (16661)**
+and 0G Galileo Testnet (16602).
 
-Spec: [`0g-flow-spec.md`](0g-flow-spec.md) · Phase 1 status below.
+Spec: [`0g-flow-spec.md`](0g-flow-spec.md) ·
+0G integration and architecture: [`docs/0g-integration.md`](docs/0g-integration.md)
+
+Explorer: <https://explorer-production-25c8.up.railway.app>
+
+```sh
+npx @0gflow/verify <runId>       # check any run from chain and storage alone
+npx @0gflow/conform <agentUrl>   # check an agent before hiring it
+```
+
+> **Testnet-grade software on a mainnet chain.** The contracts hold escrowed
+> funds and bonded stake and have not been audited. Amounts used here are
+> nominal and deliberately so.
 
 ---
 
@@ -36,6 +49,34 @@ pnpm test:contracts       # 66 tests
 
 **495 tests, all passing.** `packages/core` has **zero runtime dependencies**, so
 the verifier CLI (§9) can bundle it into a single auditable file.
+
+## Deployed on 0G Aristotle Mainnet (chain 16661)
+
+Deployed via CREATE2 with salt `keccak256("0gflow.mainnet.v1")` at block
+42941679. Every address was read back from chain, and every wiring check in
+`DeployMainnet.s.sol` passed, before any of it was recorded here.
+
+| Contract | Address |
+|---|---|
+| AgentIdentityRegistry | [`0x048E54685269dCda692122F5d9562F779810682A`](https://chainscan.0g.ai/address/0x048E54685269dCda692122F5d9562F779810682A) |
+| FlowRegistry | [`0x41660B0216Bb13388f5622e9d2550F543C5F265e`](https://chainscan.0g.ai/address/0x41660B0216Bb13388f5622e9d2550F543C5F265e) |
+| ExecutionReceiptsV2 | [`0xC93BFC19a69248EefbF74F92961D49DE302E6174`](https://chainscan.0g.ai/address/0xC93BFC19a69248EefbF74F92961D49DE302E6174) |
+| AgentAdapterRegistryV2 | [`0xFb4AE891dafD88998dDfa76a0417238a60ea9374`](https://chainscan.0g.ai/address/0xFb4AE891dafD88998dDfa76a0417238a60ea9374) |
+| FlowEscrowV2 | [`0xC2cA8fde0575FbFf83Dd98F38B1Ee19e1B6B8DE9`](https://chainscan.0g.ai/address/0xC2cA8fde0575FbFf83Dd98F38B1Ee19e1B6B8DE9) |
+| AgentReputationV1 | [`0x0B919E17e9433B824867B351037d7b7c416aD6Fe`](https://chainscan.0g.ai/address/0x0B919E17e9433B824867B351037d7b7c416aD6Fe) |
+
+`AgentIdentityRegistry` is ours and exists only on this chain: there is no code
+at the Galileo ERC-8004 address on mainnet, and 0G's Agentic ID cannot stand in
+because its `mint` is `onlyOwner` — no stranger could list an agent, which is
+the entire premise. The full argument, including why this is not a rejection of
+ERC-7857, is in [`docs/0g-integration.md`](docs/0g-integration.md).
+
+**First agent published on mainnet:** agent `1`, listed in transaction
+[`0x305bbb31…`](https://chainscan.0g.ai/tx/0x305bbb3130879d3c22a66a1c5675b426247e340aef8b9743652a6e14d3eec7cd),
+with its schema stored on 0G Storage at
+`0xcf0c701ed2020bddd75150ed1461d4fb58f48f6a80aeec45317ae5432bf26641`.
+
+---
 
 ## Deployed on 0G Galileo (chain 16602)
 
