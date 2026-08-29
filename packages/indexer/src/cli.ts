@@ -11,7 +11,7 @@
 
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { GALILEO, requireAddress, requireResolved } from '@0gflow/config';
+import { networkFromEnv, requireAddress } from '@0gflow/config';
 import { catchUp } from './ingest.js';
 import { probeAgents } from './health.js';
 import { MemoryStore } from './memory-store.js';
@@ -29,22 +29,50 @@ const POLL_MS = Number(process.env['ZG_POLL_MS'] ?? 5_000);
  */
 const HEALTH_MS = Number(process.env['ZG_HEALTH_MS'] ?? 120_000);
 
+/**
+ * One Postgres schema per network.
+ *
+ * The index has no chain column: a run row records a runId, a chain root and
+ * block numbers, none of which say which chain they came from. Point a single
+ * index at two networks and the directory silently mixes them — a mainnet run
+ * and a testnet run sitting in one list, indistinguishable, on a site whose
+ * entire claim is that you can check where a number came from. That is a worse
+ * failure than showing nothing.
+ *
+ * Separating by schema also means the cursor is per-network, which matters
+ * mechanically: Galileo's head is around 50M and Aristotle's is around 43M, so
+ * a shared cursor would ask one chain for a block range that ends before it
+ * starts, and eth_getLogs would refuse.
+ *
+ * Galileo keeps `public` so an existing deployment is untouched by this change.
+ */
+function schemaFor(network: { name: string }): string {
+  return network.name === 'galileo' ? 'public' : network.name;
+}
+
 export async function main(argv: readonly string[]): Promise<number> {
   const once = argv.includes('--once');
   const useMemory = argv.includes('--memory');
-  const network = requireResolved(GALILEO);
+  const network = networkFromEnv();
   // --v2 indexes the marketplace deployment. v1 stays the default so an
   // existing indexer keeps serving the runs it already has.
   const useV2 = argv.includes('--v2');
-  const contract = useV2
-    ? (network.contracts.executionReceiptsV2 ?? requireAddress(network, 'executionReceipts'))
+  // v1 is the default so an existing indexer keeps serving the runs it has.
+  // On a chain where v1 was never deployed there is nothing to keep serving,
+  // so v2 is the only sensible reading of "index this network".
+  const contract = useV2 || network.contracts.executionReceipts === null
+    ? requireAddress(network, 'executionReceiptsV2')
     : requireAddress(network, 'executionReceipts');
   const adapterRegistry = network.contracts.agentAdapterRegistryV2 ?? undefined;
   const agentReputation = network.contracts.agentReputation ?? undefined;
   // Following v2 means starting where v2 was deployed. Using v1's block would
   // scan 1.4M blocks over which the contracts did not exist.
+  // Start where the contract being followed was deployed. Starting at zero
+  // would scan tens of millions of empty blocks while the directory sits
+  // empty and looks broken.
+  const followingV2 = useV2 || network.contracts.executionReceipts === null;
   const deploymentBlock = BigInt(
-    (useV2 ? (network.deploymentBlockV2 ?? network.deploymentBlock) : network.deploymentBlock) ?? 0,
+    (followingV2 ? (network.deploymentBlockV2 ?? network.deploymentBlock) : network.deploymentBlock) ?? 0,
   );
 
   let store: Store;
@@ -56,7 +84,7 @@ export async function main(argv: readonly string[]): Promise<number> {
       console.error('DATABASE_URL is not set. Pass --memory to run without a database.');
       return 2;
     }
-    const pg = new PostgresStore(url);
+    const pg = new PostgresStore(url, schemaFor(network));
     await pg.migrate();
     store = pg;
   }

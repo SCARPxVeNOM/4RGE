@@ -10,7 +10,7 @@ import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { GALILEO, requireResolved } from '@0gflow/config';
+import { networkFromEnv } from '@0gflow/config';
 import { MemoryStore, PostgresStore } from '@0gflow/indexer';
 import type { Store } from '@0gflow/indexer';
 import { createServer } from './server.js';
@@ -35,8 +35,29 @@ const HOST = process.env['EXPLORER_HOST'] ?? (process.env['PORT'] === undefined 
  */
 const UI_DIR = process.env['EXPLORER_UI_DIR'];
 
+/**
+ * One Postgres schema per network.
+ *
+ * The index has no chain column: a run row records a runId, a chain root and
+ * block numbers, none of which say which chain they came from. Point a single
+ * index at two networks and the directory silently mixes them — a mainnet run
+ * and a testnet run sitting in one list, indistinguishable, on a site whose
+ * entire claim is that you can check where a number came from. That is a worse
+ * failure than showing nothing.
+ *
+ * Separating by schema also means the cursor is per-network, which matters
+ * mechanically: Galileo's head is around 50M and Aristotle's is around 43M, so
+ * a shared cursor would ask one chain for a block range that ends before it
+ * starts, and eth_getLogs would refuse.
+ *
+ * Galileo keeps `public` so an existing deployment is untouched by this change.
+ */
+function schemaFor(network: { name: string }): string {
+  return network.name === 'galileo' ? 'public' : network.name;
+}
+
 export async function main(argv: readonly string[]): Promise<number> {
-  const network = requireResolved(GALILEO);
+  const network = networkFromEnv();
 
   let store: Store;
   if (argv.includes('--memory')) {
@@ -47,7 +68,7 @@ export async function main(argv: readonly string[]): Promise<number> {
       console.error('DATABASE_URL is not set. Pass --memory to serve an empty index.');
       return 2;
     }
-    const pg = new PostgresStore(url);
+    const pg = new PostgresStore(url, schemaFor(network));
     await pg.migrate();
     store = pg;
   }
