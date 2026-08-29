@@ -40,7 +40,7 @@ export function HomePage() {
   return (
     <>
       <div className="hero-shot">
-        <HeroShot />
+        <HeroShot name="home" />
         <div className="inner">
         <header className="hero enter" style={{ paddingTop: 0 }}>
           <h1>

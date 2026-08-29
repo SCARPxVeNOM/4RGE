@@ -15,6 +15,7 @@ import { api, type RunDetail } from '../api.js';
 import { short } from '../format.js';
 import { checkChainRoot } from '../verify.js';
 import { Command, Section } from '../components/ui.js';
+import { HeroShot } from '../components/HeroShot.js';
 
 const RUN_ID = /^0x[0-9a-fA-F]{64}$/;
 
@@ -55,16 +56,21 @@ export function VerifyPage() {
 
   return (
     <>
-      <header className="hero enter">
-        <h1>
-          Check a job <span className="quiet">for yourself.</span>
-        </h1>
-        <p className="lede">
-          Paste a run ID and this page will re-do the maths in your browser: it fetches the receipts,
-          recombines them, and compares the result against what was recorded on the blockchain. If
-          they disagree, someone is wrong — possibly us.
-        </p>
-      </header>
+      <div className="hero-shot">
+        <HeroShot name="verify" />
+        <div className="inner">
+        <header className="hero enter">
+          <h1>
+            Check a job <span className="quiet">for yourself.</span>
+          </h1>
+          <p className="lede">
+            Paste a run ID and this page will re-do the maths in your browser: it fetches the receipts,
+            recombines them, and compares the result against what was recorded on the blockchain. If
+            they disagree, someone is wrong — possibly us.
+          </p>
+        </header>
+        </div>
+      </div>
 
       <form onSubmit={check} className="panel enter" style={{ animationDelay: '60ms' }}>
         <label className="field">

@@ -12,6 +12,7 @@ import { useMemo, useState } from 'react';
 import { api, useAsync, type AgentListing } from '../api.js';
 import { ago, count, kindName, og, short } from '../format.js';
 import { Avatar, Chip, Empty, ErrorNote, Loading, Pills, Stat, StatRow, type FilterOption, type Tone } from '../components/ui.js';
+import { HeroShot } from '../components/HeroShot.js';
 
 type Filter = 'all' | 'bonded' | 'proven' | 'live' | 'withdrawn';
 
@@ -153,35 +154,40 @@ export function AgentsPage() {
 
   return (
     <>
-      <header className="hero enter">
-        <h1>
-          Hire an agent that can <span className="quiet">prove it did the work.</span>
-        </h1>
-        <p className="lede">
-          Each of these listed itself on 0G and can be hired by anyone. The price and the track
-          record come straight from the blockchain — this page only reads them.{' '}
-          <a href="#/publish">List yours</a>.
-        </p>
+      <div className="hero-shot">
+        <HeroShot name="agents" />
+        <div className="inner">
+        <header className="hero enter">
+          <h1>
+            Hire an agent that can <span className="quiet">prove it did the work.</span>
+          </h1>
+          <p className="lede">
+            Each of these listed itself on 0G and can be hired by anyone. The price and the track
+            record come straight from the blockchain — this page only reads them.{' '}
+            <a href="#/publish">List yours</a>.
+          </p>
 
-        <StatRow>
-          <Stat label="Agents listed" value={count(counts.all)} />
-          <Stat label="With a record" value={count(counts.proven)} note="have run at least one step" />
-          <Stat
-            label="Total bonded"
-            // `og(0)` renders "free", which is right for a price and wrong for
-            // a stake: agents with nothing at risk have not generously waived
-            // a fee. Same fix as the agent page.
-            value={totalBonded === 0n ? 'none' : og(totalBonded)}
-            accent={totalBonded > 0n}
-            note="agents' own money at risk"
-          />
-          <Stat
-            label="Slashed"
-            value={count(slashed)}
-            note={slashed > 0 ? 'caught giving two answers' : 'none caught cheating'}
-          />
-        </StatRow>
-      </header>
+          <StatRow>
+            <Stat label="Agents listed" value={count(counts.all)} />
+            <Stat label="With a record" value={count(counts.proven)} note="have run at least one step" />
+            <Stat
+              label="Total bonded"
+              // `og(0)` renders "free", which is right for a price and wrong for
+              // a stake: agents with nothing at risk have not generously waived
+              // a fee. Same fix as the agent page.
+              value={totalBonded === 0n ? 'none' : og(totalBonded)}
+              accent={totalBonded > 0n}
+              note="agents' own money at risk"
+            />
+            <Stat
+              label="Slashed"
+              value={count(slashed)}
+              note={slashed > 0 ? 'caught giving two answers' : 'none caught cheating'}
+            />
+          </StatRow>
+        </header>
+        </div>
+      </div>
 
       <div className="toolbar enter" style={{ animationDelay: '60ms' }}>
         <Pills

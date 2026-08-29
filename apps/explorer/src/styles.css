@@ -1001,9 +1001,9 @@ pre.cmd .flag { color: var(--fg); }
   inset: 0;
   /* A 92-byte blurred copy, inlined, so there is something behind the words on
      the very first frame instead of a black rectangle that fills in later. */
-  background-image: url('data:image/webp;base64,UklGRlQAAABXRUJQVlA4IEgAAACwAwCdASoYAA4APu1iqk2ppaQiMAgBMB2JZQDMHCHe3+3WCE7wQAD+8qBl2BA0/3WFts3ZbJwtHHIRIB/excycD6srg3yAAAA=');
+  background-image: var(--shot-tiny);
   background-size: cover;
-  background-position: 62% 46%;
+  background-position: var(--shot-focus, 62% 46%);
   filter: blur(20px);
   transform: scale(1.08);
 }
@@ -1012,9 +1012,9 @@ pre.cmd .flag { color: var(--fg); }
   content: '';
   position: absolute;
   inset: 0;
-  background-image: image-set(url('./assets/hero.webp') type('image/webp'), url('./assets/hero.jpg') type('image/jpeg'));
+  background-image: var(--shot);
   background-size: cover;
-  background-position: 62% 46%;
+  background-position: var(--shot-focus, 62% 46%);
   opacity: 0;
   transition: opacity 0.8s ease;
   /* A very slow push in. 60s across 4% — perceptible only if you sit and look
@@ -1051,7 +1051,7 @@ pre.cmd .flag { color: var(--fg); }
      be heavier or the headline sits on top of monitors. */
   .hero-shot { padding-top: 124px; }
   .hero-shot .shot,
-  .hero-shot .shot::after { background-position: 70% 46%; }
+  .hero-shot .shot::after { background-position: 78% 46%; }
   .hero-shot .scrim {
     background:
       linear-gradient(100deg, rgb(8 9 11 / 0.96) 0%, rgb(8 9 11 / 0.88) 40%, rgb(8 9 11 / 0.55) 100%),
@@ -1062,4 +1062,32 @@ pre.cmd .flag { color: var(--fg); }
 
 @media (prefers-reduced-motion: reduce) {
   .hero-shot .shot::after { animation: none; transition: none; }
+}
+
+/* --------------------------------------------------------------------------
+   Legibility over a photograph
+
+   The heroes on the inner pages sit over rooms full of lit monitors and
+   whiteboards, and a heading has to stay readable over whatever the crop lands
+   on. The scrim does most of that work; these are the last few per cent.
+
+   A text-shadow rather than a heavier scrim, because darkening the image until
+   white text is safe everywhere means darkening it until there is no image.
+   -------------------------------------------------------------------------- */
+
+.hero-shot .hero h1,
+.hero-shot .hero .lede {
+  text-shadow: 0 1px 24px rgb(8 9 11 / 0.85), 0 1px 3px rgb(8 9 11 / 0.7);
+}
+.hero-shot .hero .lede { color: #c6cbd3; }
+/* The dimmed half of a headline is var(--dim) by default, which is legible on
+   flat near-black and disappears over a lit monitor. */
+.hero-shot .hero h1 .quiet { color: #9aa2ad; }
+
+/* Stats sit inside the photograph on these pages, so they need a surface of
+   their own rather than floating on whatever is behind them. */
+.hero-shot .statrow {
+  background: rgb(8 9 11 / 0.55);
+  backdrop-filter: blur(6px);
+  border-radius: var(--radius);
 }

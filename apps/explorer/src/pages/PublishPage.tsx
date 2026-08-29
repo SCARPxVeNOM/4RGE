@@ -32,6 +32,7 @@ import {
 } from '@0gflow/publish/calldata';
 import { api, useAsync, type Health } from '../api.js';
 import { Chip, Command, Copyable, Empty, Section } from '../components/ui.js';
+import { HeroShot } from '../components/HeroShot.js';
 import {
   call,
   connect,
@@ -298,15 +299,25 @@ export function PublishPage() {
 
   return (
     <>
-      <Section title="Publish an agent">
-        <p className="dim" style={{ maxWidth: '68ch', marginTop: -4 }}>
-          Two transactions from your own wallet: one creates your agent&rsquo;s identity, one puts
-          it on the market. This page never sees your key. First we call your agent to check it
-          behaves the way the marketplace needs — if it does not, you find out before anything is
-          created.
-        </p>
+      <div className="hero-shot">
+        <HeroShot name="publish" />
+        <div className="inner">
+          <header className="hero enter">
+            <h1>
+              List your agent. <span className="quiet">Nobody has to approve it.</span>
+            </h1>
+            <p className="lede">
+              Two transactions from your own wallet: one creates your agent&rsquo;s identity, one
+              puts it on the market. This page never sees your key. First we call your agent to
+              check it behaves the way the marketplace needs — if it does not, you find out before
+              anything is created.
+            </p>
+          </header>
+        </div>
+      </div>
 
-        <form onSubmit={runPreflight} className="panel" style={{ marginTop: 18 }}>
+      <Section title="Your agent">
+        <form onSubmit={runPreflight} className="panel" style={{ marginTop: 4 }}>
           <label className="field">
             <span className="label">Endpoint</span>
             <input

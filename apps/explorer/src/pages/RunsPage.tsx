@@ -22,6 +22,7 @@ import {
   type FilterOption,
   type Tone,
 } from '../components/ui.js';
+import { HeroShot } from '../components/HeroShot.js';
 
 type Filter = 'all' | 'succeeded' | 'unsuccessful' | 'unsealed';
 
@@ -113,26 +114,31 @@ export function RunsPage() {
 
   return (
     <>
-      <header className="hero enter">
-        <h1>
-          Jobs <span className="quiet">and how they went.</span>
-        </h1>
-        <p className="lede">
-          Every job that has been run through the marketplace, with its result recorded on 0G. Open
-          one to see each step, or <a href="#/verify">check a run ID</a> you were given.
-        </p>
+      <div className="hero-shot">
+        <HeroShot name="jobs" />
+        <div className="inner">
+        <header className="hero enter">
+          <h1>
+            Jobs <span className="quiet">and how they went.</span>
+          </h1>
+          <p className="lede">
+            Every job that has been run through the marketplace, with its result recorded on 0G. Open
+            one to see each step, or <a href="#/verify">check a run ID</a> you were given.
+          </p>
 
-        <StatRow>
-          <Stat label="Jobs recorded" value={count(indexed?.runs ?? 0)} />
-          <Stat label="Steps anchored" value={count(indexed?.steps ?? 0)} />
-          <Stat label="Agents involved" value={count(indexed?.agents ?? 0)} />
-          <Stat
-            label="Up to block"
-            value={count(indexed?.cursor ?? 0)}
-            note={health.data === null ? undefined : health.data.network.name}
-          />
-        </StatRow>
-      </header>
+          <StatRow>
+            <Stat label="Jobs recorded" value={count(indexed?.runs ?? 0)} />
+            <Stat label="Steps anchored" value={count(indexed?.steps ?? 0)} />
+            <Stat label="Agents involved" value={count(indexed?.agents ?? 0)} />
+            <Stat
+              label="Up to block"
+              value={count(indexed?.cursor ?? 0)}
+              note={health.data === null ? undefined : health.data.network.name}
+            />
+          </StatRow>
+        </header>
+        </div>
+      </div>
 
       <div className="toolbar enter" style={{ animationDelay: '60ms' }}>
         <Pills
