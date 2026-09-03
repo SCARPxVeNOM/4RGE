@@ -84,6 +84,24 @@ function TopBar({ route, health }: { route: string[]; health: Health | null }) {
   );
 }
 
+/**
+ * The standing of what the reader is looking at.
+ *
+ * This used to be the constant "Testnet only", which stayed on the page after
+ * the deployment moved to mainnet — telling every visitor the opposite of the
+ * truth, in the one place a footer is supposed to be dependable. It now follows
+ * the chain the API is actually indexing, so it cannot drift again.
+ *
+ * The unaudited warning is never dropped. It is more relevant on mainnet, not
+ * less, because that is where the tokens are real.
+ */
+function standing(health: Health | null): string {
+  if (health === null) return 'Nothing here has been audited.';
+  return health.network.chainId === 16661
+    ? 'Live on 0G mainnet; nothing has been audited.'
+    : `Testnet (${health.network.name}); nothing has been audited.`;
+}
+
 export default function App() {
   const route = useHashRoute();
   const health = useAsync(() => api<Health>('/api/health'), []);
@@ -113,7 +131,7 @@ export default function App() {
       <footer>
         <p style={{ margin: '0 0 8px' }}>
           Everything here is read from the 0G blockchain, and none of it asks to be believed —{' '}
-          <a href="#/verify">check any of it yourself</a>. Testnet only; nothing has been audited.
+          <a href="#/verify">check any of it yourself</a>. {standing(health.data)}
         </p>
         <p style={{ margin: 0, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
           {(
