@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { GALILEO } from '@0gflow/config';
 import { foldChainRoot, StepStatus, ZERO_BYTES32, type Hex, type Receipt } from '@0gflow/core';
 import { MemoryStore } from '@0gflow/indexer';
-import { createServer } from '../src/server.js';
+import { createServer, verifyCommand } from '../src/server.js';
 import type { FastifyInstance } from 'fastify';
 
 /**
@@ -88,6 +88,21 @@ describe('runs', () => {
     for (const key of ['inputHash', 'outputHash', 'traceRoot', 'attestationRef', 'startedAt', 'endedAt', 'status', 'agentId', 'stepIndex']) {
       expect(body['steps'][0]).toHaveProperty(key);
     }
+  });
+
+  test('hands out a verify command that names the chain it indexed', async () => {
+    // The verifier defaults to Galileo. A mainnet run whose suggested command
+    // omits the network sends the reader looking for these receipts on the
+    // testnet, where they do not exist, and prints FAILED — sound evidence
+    // reported as broken by our own instructions. This ran on Galileo, so the
+    // prefix is correctly absent here; the aristotle case is pinned below.
+    const { body } = await get(`/api/runs/${RUN}`);
+    expect(body['verification'].command).toBe(`npx @0gflow/verify ${RUN}`);
+  });
+
+  test('names any network that is not the verifier default', () => {
+    expect(verifyCommand(RUN, 'aristotle')).toBe(`ZG_NETWORK=aristotle npx @0gflow/verify ${RUN}`);
+    expect(verifyCommand(RUN, 'galileo')).toBe(`npx @0gflow/verify ${RUN}`);
   });
 
   test('reports whether the folded root matches the seal', async () => {

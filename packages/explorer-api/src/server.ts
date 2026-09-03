@@ -58,6 +58,19 @@ const STATUS_NAME: Record<number, string> = {
   [StepStatus.Unattested]: 'unattested',
 };
 
+/**
+ * The command that checks this run on someone else's machine.
+ *
+ * Galileo is the verifier's default, so it is the one network that needs no
+ * prefix; naming it anyway would be noise on the majority of installs. Every
+ * other network must be named, because the alternative is a reader running our
+ * suggested command and being told that good evidence has failed.
+ */
+export function verifyCommand(runId: string, network: string): string {
+  const prefix = network === 'galileo' ? '' : `ZG_NETWORK=${network} `;
+  return `${prefix}npx @0gflow/verify ${runId}`;
+}
+
 function serialise(value: unknown): unknown {
   if (typeof value === 'bigint') return value.toString();
   if (Array.isArray(value)) return value.map(serialise);
@@ -208,7 +221,13 @@ export function createServer(options: ServerOptions): FastifyInstance {
       })),
       verification: {
         // §8.2: a copyable verification command on every run page.
-        command: `npx @0gflow/verify ${runId}`,
+        //
+        // The network prefix is not decoration. The verifier defaults to
+        // Galileo when ZG_NETWORK is unset, so the bare command run against a
+        // mainnet run looks for its receipts on the testnet, finds none, and
+        // reports FAILED — telling the reader that sound evidence is broken.
+        // A command we hand someone has to work where we hand it to them.
+        command: verifyCommand(runId, network.name),
         note: 'Run it yourself. This page is derived from the same public data and proves nothing on its own.',
       },
     });

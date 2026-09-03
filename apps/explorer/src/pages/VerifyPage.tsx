@@ -11,7 +11,7 @@
  */
 
 import { useState } from 'react';
-import { api, type RunDetail } from '../api.js';
+import { api, useAsync, type Health, type RunDetail } from '../api.js';
 import { short } from '../format.js';
 import { checkChainRoot } from '../verify.js';
 import { Command, Section } from '../components/ui.js';
@@ -28,6 +28,11 @@ type Result =
 export function VerifyPage() {
   const [input, setInput] = useState('');
   const [result, setResult] = useState<Result>({ kind: 'idle' });
+  // Only to name the chain in the command below. The verifier defaults to
+  // Galileo, so on any other network the bare command would send the reader
+  // looking for these receipts on the wrong chain and report FAILED.
+  const health = useAsync(() => api<Health>('/api/health'), []);
+  const network = health.data?.network.name ?? 'galileo';
 
   async function check(event: React.FormEvent) {
     event.preventDefault();
@@ -104,7 +109,9 @@ export function VerifyPage() {
             a browser cannot reach. The command below checks all of it, on your machine, and tells
             you plainly what it could not confirm rather than rounding up to a tick.
           </p>
-          <Command>{`npx @0gflow/verify <runId>`}</Command>
+          <Command>
+            {`${network === 'galileo' ? '' : `ZG_NETWORK=${network} `}npx @0gflow/verify <runId>`}
+          </Command>
           <p className="dim" style={{ fontSize: 12, marginTop: 12, marginBottom: 0 }}>
             It reads from the blockchain directly, so it works whether or not this site is up.
           </p>

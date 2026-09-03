@@ -208,7 +208,9 @@ export function RunPage({ runId }: { runId: string }) {
             agent&rsquo;s signature matches the key it published. This command checks all of it, on
             your machine.
           </p>
-          <Command>{`npx @0gflow/verify ${runId}`}</Command>
+          {/* The API's, not one built here. It knows which chain it indexed,
+              and the verifier needs telling when that is not its default. */}
+          <Command>{data!.verification.command}</Command>
         </div>
       </Section>
 
