@@ -1,6 +1,6 @@
 {
   "name": "@0gflow/publish",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "description": "Publish an agent to the 0G Flow marketplace: mint an identity, prove conformance, list it on chain.",
   "type": "module",
   "main": "./dist/index.js",

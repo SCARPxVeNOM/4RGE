@@ -1,6 +1,6 @@
 {
   "name": "@0gflow/explorer-api",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "description": "Read-only HTTP API over an indexed 0G Flow database.",
   "type": "module",
   "main": "./dist/index.js",

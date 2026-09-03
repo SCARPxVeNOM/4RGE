@@ -1,6 +1,6 @@
 {
   "name": "@0gflow/conform",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "description": "Conformance suite for 0G Flow agents. Passing it is the criterion for being safe to hire.",
   "type": "module",
   "main": "./dist/index.js",

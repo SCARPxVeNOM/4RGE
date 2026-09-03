@@ -1,6 +1,6 @@
 {
   "name": "@0gflow/verify",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "description": "Independently verify a 0G Flow run from public chain data. Single file, zero dependencies.",
   "type": "module",
   "bin": {

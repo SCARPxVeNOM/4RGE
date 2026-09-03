@@ -1,6 +1,6 @@
 {
   "name": "@0gflow/config",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "description": "Network and contract addresses for 0G Flow on 0G Galileo.",
   "type": "module",
   "main": "./dist/index.js",
